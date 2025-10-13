@@ -39,7 +39,16 @@ export async function isWorktreeClean(worktreePath: string = "."): Promise<boole
     }
 }
 
-// Add other git-related utilities here in the future
+/**
+ * Determine whether the main (non-worktree) Git repository is configured as a bare repository.
+ *
+ * Checks the repository root for the `core.bare` setting and returns its boolean value. If the
+ * `core.bare` key does not exist or the check cannot be performed, the function returns `false`
+ * and emits a warning.
+ *
+ * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
+ * @returns `true` if the repository's `core.bare` configuration is `true`, `false` otherwise
+ */
 
 export async function isMainRepoBare(cwd: string = '.'): Promise<boolean> {
     try {
@@ -65,4 +74,20 @@ export async function isMainRepoBare(cwd: string = '.'): Promise<boolean> {
         console.warn(chalk.yellow(`Could not reliably determine if the main repository is bare. Proceeding cautiously. Error:`), error.stderr || error.message);
         return false; // Default to non-bare to avoid blocking unnecessarily, but warn the user.
     }
-} 
+}
+
+/**
+ * Determine the top-level directory of the Git repository containing the given working directory.
+ *
+ * @param cwd - Path of the working directory to query (defaults to the current directory)
+ * @returns The absolute path to the repository's top-level directory, or `null` if it cannot be determined
+ */
+export async function getRepoRoot(cwd: string = "."): Promise<string | null> {
+    try {
+        const { stdout } = await execa("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
+        return stdout.trim();
+    } catch (error) {
+        console.error(chalk.yellow("Could not determine repository root."), error);
+        return null;
+    }
+}
