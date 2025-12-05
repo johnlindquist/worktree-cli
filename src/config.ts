@@ -12,6 +12,7 @@ const packageName = packageJson.name;
 // Define the structure of the configuration
 interface ConfigSchema {
     defaultEditor: string;
+    gitProvider: 'gh' | 'glab';
 }
 
 // Initialize conf with a schema and project name
@@ -20,6 +21,11 @@ const schema = {
     defaultEditor: {
         type: 'string',
         default: 'cursor', // Default editor is 'cursor'
+    },
+    gitProvider: {
+        type: 'string',
+        enum: ['gh', 'glab'],
+        default: 'gh', // Default provider is GitHub CLI
     },
 } as const;
 
@@ -36,6 +42,16 @@ export function getDefaultEditor(): string {
 // Function to set the default editor
 export function setDefaultEditor(editor: string): void {
     config.set('defaultEditor', editor);
+}
+
+// Function to get the git provider
+export function getGitProvider(): 'gh' | 'glab' {
+    return config.get('gitProvider');
+}
+
+// Function to set the git provider
+export function setGitProvider(provider: 'gh' | 'glab'): void {
+    config.set('gitProvider', provider);
 }
 
 // Function to get the path to the config file (for debugging/info)

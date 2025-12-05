@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { newWorktreeHandler } from "./commands/new.js";
+import { setupWorktreeHandler } from "./commands/setup.js";
 import { listWorktreesHandler } from "./commands/list.js";
 import { removeWorktreeHandler } from "./commands/remove.js";
 import { mergeWorktreeHandler } from "./commands/merge.js";
 import { purgeWorktreesHandler } from "./commands/purge.js";
 import { configHandler } from "./commands/config.js";
 import { prWorktreeHandler } from "./commands/pr.js";
+import { openWorktreeHandler } from "./commands/open.js";
+import { extractWorktreeHandler } from "./commands/extract.js";
 const program = new Command();
 program
     .name("wt")
@@ -21,6 +24,15 @@ program
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (e.g., code, webstorm, windsurf, etc.)")
     .description("Create a new worktree for the specified branch, install dependencies if specified, and open in editor.")
     .action(newWorktreeHandler);
+program
+    .command("setup")
+    .argument("[branchName]", "Name of the branch to base this worktree on")
+    .option("-p, --path <path>", "Relative path/folder name for new worktree")
+    .option("-c, --checkout", "Create new branch if it doesn't exist and checkout automatically", false)
+    .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (e.g., code, webstorm, windsurf, etc.)")
+    .description("Create a new worktree and run setup scripts from worktrees.json or .cursor/worktrees.json")
+    .action(setupWorktreeHandler);
 program
     .command("list")
     .alias("ls")
@@ -52,6 +64,20 @@ program
     .description("Fetch the branch for a given GitHub PR number and create a worktree.")
     .action(prWorktreeHandler);
 program
+    .command("open")
+    .argument("[pathOrBranch]", "Path to worktree or branch name to open")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
+    .description("Open an existing worktree in the editor.")
+    .action(openWorktreeHandler);
+program
+    .command("extract")
+    .argument("[branchName]", "Name of the branch to extract (defaults to current branch)")
+    .option("-p, --path <path>", "Relative path/folder name for the worktree")
+    .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
+    .description("Extract an existing branch as a new worktree. If no branch is specified, extracts the current branch.")
+    .action(extractWorktreeHandler);
+program
     .command("config")
     .description("Manage CLI configuration settings.")
     .addCommand(new Command("set")
@@ -59,13 +85,20 @@ program
     .addCommand(new Command("editor")
     .argument("<editorName>", "Name of the editor command (e.g., code, cursor, webstorm)")
     .description("Set the default editor to open worktrees in.")
-    .action((editorName) => configHandler('set', 'editor', editorName))))
+    .action((editorName) => configHandler("set", "editor", editorName)))
+    .addCommand(new Command("provider")
+    .argument("<providerName>", "Git provider CLI to use (gh for GitHub, glab for GitLab)")
+    .description("Set the default git provider (gh or glab).")
+    .action((providerName) => configHandler("set", "provider", providerName))))
     .addCommand(new Command("get")
     .description("Get a configuration value.")
     .addCommand(new Command("editor")
     .description("Get the currently configured default editor.")
-    .action(() => configHandler('get', 'editor'))))
+    .action(() => configHandler("get", "editor")))
+    .addCommand(new Command("provider")
+    .description("Get the currently configured git provider.")
+    .action(() => configHandler("get", "provider"))))
     .addCommand(new Command("path")
     .description("Show the path to the configuration file.")
-    .action(() => configHandler('path')));
+    .action(() => configHandler("path")));
 program.parse(process.argv);

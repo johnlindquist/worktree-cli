@@ -50,16 +50,20 @@ wt setup feature/new-feature
 wt setup feature/quick-start -i pnpm
 ```
 
-### Create a new worktree from Pull Request Number
+### Create a new worktree from Pull Request / Merge Request Number
 
 ```bash
 wt pr <prNumber> [options]
 ```
-Uses the GitHub CLI (`gh`) to check out the branch associated with the given Pull Request number, sets it up locally to track the correct remote branch (handling forks automatically), and then creates a worktree for it.
+Uses GitHub CLI (`gh`) or GitLab CLI (`glab`) to check out the branch associated with the given Pull Request or Merge Request number, sets it up locally to track the correct remote branch (handling forks automatically), and then creates a worktree for it.
 
-**Benefit:** Commits made in this worktree can be pushed directly using `git push` to update the Pull Request.
+**Benefit:** Commits made in this worktree can be pushed directly using `git push` to update the Pull Request or Merge Request.
 
-**Requires GitHub CLI (`gh`) to be installed and authenticated.**
+**Requires:**
+- **For GitHub**: GitHub CLI (`gh`) installed and authenticated
+- **For GitLab**: GitLab CLI (`glab`) installed and authenticated
+
+The tool automatically detects whether you're working with a GitHub or GitLab repository by analyzing the remote URL. You can also manually configure the preferred provider (see [Configure Git Provider](#configure-git-provider)).
 
 Options:
 - `-p, --path <path>`: Specify a custom path for the worktree (defaults to `<repoName>-<branchName>`)
@@ -68,10 +72,10 @@ Options:
 
 Example:
 ```bash
-# Create worktree for PR #123
+# Create worktree for PR/MR #123
 wt pr 123
 
-# Create worktree for PR #456, install deps with pnpm, open in vscode
+# Create worktree for PR/MR #456, install deps with pnpm, open in vscode
 wt pr 456 -i pnpm -e code
 ```
 
@@ -96,6 +100,24 @@ wt config path
 ```
 
 The default editor will be used when creating new worktrees unless overridden with the `-e` flag.
+
+### Configure Git Provider
+
+You can configure which Git provider CLI tool to use for the `wt pr` command:
+
+```bash
+# Set git provider
+wt config set provider <providerName>
+
+# Examples:
+wt config set provider gh    # Use GitHub CLI (default)
+wt config set provider glab  # Use GitLab CLI
+
+# Get current provider
+wt config get provider
+```
+
+**Note:** The tool automatically detects your Git provider by analyzing the remote URL (github.com or gitlab.com/gitlab.*). The configuration setting is only used as a fallback or when auto-detection is not possible.
 
 ### Setup Worktree Configuration
 
@@ -174,7 +196,9 @@ wt remove feature/chat
 - Git
 - Node.js
 - An editor installed and available in PATH (defaults to Cursor)
-- **GitHub CLI (`gh`) installed and authenticated (for `wt pr` command)**
+- **For `wt pr` command:**
+  - **GitHub**: GitHub CLI (`gh`) - install with `brew install gh`, authenticate with `gh auth login`
+  - **GitLab**: GitLab CLI (`glab`) - install with `brew install glab`, authenticate with `glab auth login`
 
 ## Development
 

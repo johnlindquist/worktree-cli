@@ -1,6 +1,7 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { stat, rm } from "node:fs/promises";
+import { isMainRepoBare } from "../utils/git.js";
 export async function mergeWorktreeHandler(branchName, options) {
     try {
         // Validate that we're in a git repository
@@ -54,6 +55,12 @@ export async function mergeWorktreeHandler(branchName, options) {
         console.log(chalk.green(`Merged branch "${branchName}" into "${currentBranch}".`));
         // Step 3: Remove the worktree for the merged branch (similar to 'wt remove')
         console.log(chalk.blue(`Removing worktree for branch "${branchName}"...`));
+        if (await isMainRepoBare()) {
+            console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
+            console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
+            console.error(chalk.cyan("   git config core.bare false"));
+            process.exit(1);
+        }
         const removeArgs = ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath];
         await execa("git", removeArgs);
         console.log(chalk.green(`Removed worktree at ${targetPath}.`));
