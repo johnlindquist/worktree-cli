@@ -1,57 +1,98 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { stat, rm } from "node:fs/promises";
-import { isMainRepoBare } from "../utils/git.js";
+import { findWorktreeByBranch, findWorktreeByPath } from "../utils/git.js";
+import { selectWorktree, confirm } from "../utils/tui.js";
 export async function removeWorktreeHandler(pathOrBranch = "", options) {
     try {
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
+        let targetWorktree = null;
+        // Improvement #4: Interactive TUI for missing arguments
         if (!pathOrBranch) {
-            console.error(chalk.red("You must specify a path or branch name for the worktree."));
+            const selected = await selectWorktree({
+                message: "Select a worktree to remove",
+                excludeMain: true, // Don't allow removing main worktree
+            });
+            if (!selected || Array.isArray(selected)) {
+                console.log(chalk.yellow("No worktree selected."));
+                process.exit(0);
+            }
+            targetWorktree = selected;
+        }
+        else {
+            // Try to find by path first
+            try {
+                const stats = await stat(pathOrBranch);
+                if (stats.isDirectory()) {
+                    targetWorktree = await findWorktreeByPath(pathOrBranch);
+                }
+            }
+            catch {
+                // Not a valid path, try as branch name
+            }
+            // If not found by path, try by branch name
+            if (!targetWorktree) {
+                targetWorktree = await findWorktreeByBranch(pathOrBranch);
+            }
+            if (!targetWorktree) {
+                console.error(chalk.red(`Could not find a worktree for "${pathOrBranch}".`));
+                console.error(chalk.yellow("Use 'wt list' to see existing worktrees, or run 'wt remove' without arguments to select interactively."));
+                process.exit(1);
+            }
+        }
+        const targetPath = targetWorktree.path;
+        // Prevent removing main worktree
+        if (targetWorktree.isMain) {
+            console.error(chalk.red("Cannot remove the main worktree."));
             process.exit(1);
         }
-        // If the user gave us a path, we can remove directly.
-        // If user gave us a branch name, we might parse `git worktree list` to find the matching path.
-        let targetPath = pathOrBranch;
-        // Try to see if it's a valid path
-        let isDirectory = false;
-        try {
-            const stats = await stat(pathOrBranch);
-            isDirectory = stats.isDirectory();
+        // Show what will be removed
+        console.log(chalk.blue(`Worktree to remove:`));
+        if (targetWorktree.branch) {
+            console.log(chalk.cyan(`  Branch: ${targetWorktree.branch}`));
         }
-        catch {
-            isDirectory = false;
+        console.log(chalk.cyan(`  Path: ${targetPath}`));
+        // Warn about locked worktrees
+        if (targetWorktree.locked) {
+            console.log(chalk.yellow(`  Warning: This worktree is locked${targetWorktree.lockReason ? `: ${targetWorktree.lockReason}` : ''}`));
+            if (!options.force) {
+                console.error(chalk.red("Use --force to remove a locked worktree."));
+                process.exit(1);
+            }
         }
-        if (!isDirectory) {
-            // If it's not a directory, assume it's a branch name:
-            const { stdout } = await execa("git", ["worktree", "list", "--porcelain"]);
-            // The --porcelain output is structured. We'll parse lines and find the "worktree <path>" and "branch refs/heads/<branchName>"
-            const entries = stdout.split("\n");
-            let currentPath = null;
-            for (const line of entries) {
-                if (line.startsWith("worktree ")) {
-                    currentPath = line.replace("worktree ", "").trim();
-                }
-                else if (line.startsWith("branch ")) {
-                    const fullBranchRef = line.replace("branch ", "").trim(); // e.g. refs/heads/my-branch
-                    const shortBranch = fullBranchRef.replace("refs/heads/", "");
-                    if (shortBranch === pathOrBranch && currentPath) {
-                        targetPath = currentPath;
-                        break;
-                    }
-                }
+        // Confirm removal (skip in non-interactive mode or with force flag)
+        const isNonInteractive = !process.stdin.isTTY;
+        if (!options.force && !isNonInteractive) {
+            const confirmed = await confirm("Are you sure you want to remove this worktree?", false);
+            if (!confirmed) {
+                console.log(chalk.yellow("Removal cancelled."));
+                process.exit(0);
             }
         }
         console.log(chalk.blue(`Removing worktree: ${targetPath}`));
-        // >>> ADD SAFETY CHECK HERE <<<
-        if (await isMainRepoBare()) {
-            console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
-            console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
-            console.error(chalk.cyan("   git config core.bare false"));
-            process.exit(1);
+        // Remove the worktree
+        try {
+            await execa("git", ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath]);
+            console.log(chalk.green("Git worktree metadata removed."));
         }
-        // Pass the "--force" flag to Git if specified
-        await execa("git", ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath]);
-        // Optionally also remove the physical directory if it still exists
+        catch (removeError) {
+            if (removeError.stderr?.includes("modified or untracked files") && !options.force) {
+                console.log(chalk.yellow("Worktree contains modified or untracked files."));
+                const forceRemove = await confirm("Do you want to force remove this worktree (this may lose changes)?", false);
+                if (forceRemove) {
+                    await execa("git", ["worktree", "remove", "--force", targetPath]);
+                    console.log(chalk.green("Git worktree metadata force removed."));
+                }
+                else {
+                    console.log(chalk.yellow("Removal cancelled."));
+                    process.exit(0);
+                }
+            }
+            else {
+                throw removeError;
+            }
+        }
+        // Also remove the physical directory if it still exists
         try {
             await stat(targetPath);
             await rm(targetPath, { recursive: true, force: true });

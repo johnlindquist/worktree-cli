@@ -31,6 +31,7 @@ program
     .option("-c, --checkout", "Create new branch if it doesn't exist and checkout automatically", false)
     .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (e.g., code, webstorm, windsurf, etc.)")
+    .option("-t, --trust", "Trust and run setup commands without confirmation (for CI environments)", false)
     .description("Create a new worktree and run setup scripts from worktrees.json or .cursor/worktrees.json")
     .action(setupWorktreeHandler);
 program

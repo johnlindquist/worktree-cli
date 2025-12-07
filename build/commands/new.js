@@ -1,69 +1,78 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
-import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor, shouldSkipEditor, getDefaultWorktreePath } from "../config.js";
-import { isWorktreeClean, isMainRepoBare } from "../utils/git.js";
+import { join } from "node:path";
+import { getDefaultEditor, shouldSkipEditor } from "../config.js";
+import { isWorktreeClean, isMainRepoBare, stashChanges, popStash, } from "../utils/git.js";
+import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
+import { AtomicWorktreeOperation } from "../utils/atomic.js";
+import { handleDirtyState } from "../utils/tui.js";
 export async function newWorktreeHandler(branchName, options = {}) {
+    let stashed = false;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
         // Validate branch name is provided
         if (!branchName || branchName.trim() === "") {
-            console.error(chalk.red("❌ Error: Branch name is required."));
+            console.error(chalk.red("Error: Branch name is required."));
             console.error(chalk.yellow("Usage: wt new <branchName> [options]"));
             console.error(chalk.cyan("Example: wt new feature/my-feature --checkout"));
             process.exit(1);
         }
-        console.log(chalk.blue("Checking if main worktree is clean..."));
-        const isClean = await isWorktreeClean(".");
-        if (!isClean) {
-            console.error(chalk.red("❌ Error: Your main worktree is not clean."));
-            console.error(chalk.yellow("Creating a new worktree requires a clean main worktree state."));
-            console.error(chalk.cyan("Please commit, stash, or discard your changes. Run 'git status' to see the changes."));
-            process.exit(1); // Exit if not clean
+        // Validate branch name format
+        const validation = validateBranchName(branchName);
+        if (!validation.isValid) {
+            console.error(chalk.red(`Error: ${validation.error}`));
+            process.exit(1);
         }
-        else {
-            console.log(chalk.green("✅ Main worktree is clean."));
-        }
-        // 2. Build final path for the new worktree
-        let folderName;
-        if (options.path) {
-            folderName = options.path;
-        }
-        else {
-            // Derive the short name for the directory from the branch name
-            // This handles cases like 'feature/login' -> 'login'
-            const shortBranchName = branchName.split('/').filter(part => part.length > 0).pop() || branchName;
-            // Check for configured default worktree path
-            const defaultWorktreePath = getDefaultWorktreePath();
-            if (defaultWorktreePath) {
-                // Use configured global worktree directory
-                folderName = join(defaultWorktreePath, shortBranchName);
+        // 2. Check if this is a bare repository (Improvement #2)
+        const isBare = await isMainRepoBare();
+        // 3. Check if main worktree is clean (skip for bare repos)
+        if (!isBare) {
+            console.log(chalk.blue("Checking if main worktree is clean..."));
+            const isClean = await isWorktreeClean(".");
+            if (!isClean) {
+                // Improvement #5: Handle dirty states gracefully
+                const action = await handleDirtyState("Your main worktree has uncommitted changes.");
+                if (action === 'abort') {
+                    console.log(chalk.yellow("Operation cancelled."));
+                    process.exit(0);
+                }
+                else if (action === 'stash') {
+                    console.log(chalk.blue("Stashing your changes..."));
+                    stashed = await stashChanges(".", `wt-new: Before creating worktree for ${branchName}`);
+                    if (stashed) {
+                        console.log(chalk.green("Changes stashed successfully."));
+                    }
+                }
+                else {
+                    // 'continue' - just warn and proceed
+                    console.log(chalk.yellow("Proceeding with uncommitted changes..."));
+                }
             }
             else {
-                // Create a sibling directory using the short branch name
-                const currentDir = process.cwd();
-                const parentDir = dirname(currentDir);
-                const currentDirName = basename(currentDir);
-                folderName = join(parentDir, `${currentDirName}-${shortBranchName}`);
+                console.log(chalk.green("Main worktree is clean."));
             }
         }
-        const resolvedPath = resolve(folderName);
+        // 4. Build final path for the new worktree (Improvement #1 & #7)
+        const resolvedPath = await resolveWorktreePath(branchName, {
+            customPath: options.path,
+            useRepoNamespace: true, // Prevent global path collisions
+        });
         // Check if directory already exists
         let directoryExists = false;
         try {
             await stat(resolvedPath);
             directoryExists = true;
         }
-        catch (error) {
+        catch {
             // Directory doesn't exist, continue with creation
         }
-        // 3. Check if branch exists
+        // 5. Check if branch exists
         const { stdout: localBranches } = await execa("git", ["branch", "--list", branchName]);
         const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `origin/${branchName}`]);
         const branchExists = !!localBranches || !!remoteBranches;
-        // 4. Create the new worktree or open the editor if it already exists
+        // 6. Create the new worktree or open the editor if it already exists
         if (directoryExists) {
             console.log(chalk.yellow(`Directory already exists at: ${resolvedPath}`));
             // Check if this is a git worktree by checking for .git file/folder
@@ -72,7 +81,7 @@ export async function newWorktreeHandler(branchName, options = {}) {
                 await stat(join(resolvedPath, ".git"));
                 isGitWorktree = true;
             }
-            catch (error) {
+            catch {
                 // Not a git worktree
             }
             if (isGitWorktree) {
@@ -81,52 +90,55 @@ export async function newWorktreeHandler(branchName, options = {}) {
             else {
                 console.log(chalk.yellow(`Warning: Directory exists but is not a git worktree.`));
             }
-            // Skip to opening editor
         }
         else {
             console.log(chalk.blue(`Creating new worktree for branch "${branchName}" at: ${resolvedPath}`));
-            if (await isMainRepoBare()) {
-                console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
-                console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
-                console.error(chalk.cyan("   git config core.bare false"));
-                process.exit(1);
+            // Improvement #2: Support for bare repositories
+            // Skip the bare check - bare repos work fine with worktrees
+            // Improvement #9: Atomic operations with rollback
+            const atomic = new AtomicWorktreeOperation();
+            try {
+                if (!branchExists) {
+                    console.log(chalk.yellow(`Branch "${branchName}" doesn't exist. Creating new branch with worktree...`));
+                    await atomic.createWorktree(resolvedPath, branchName, true);
+                }
+                else {
+                    console.log(chalk.green(`Using existing branch "${branchName}".`));
+                    await atomic.createWorktree(resolvedPath, branchName, false);
+                }
+                // Run install if specified
+                if (options.install) {
+                    await atomic.runInstall(options.install, resolvedPath);
+                }
+                // Commit the atomic operation
+                atomic.commit();
             }
-            if (!branchExists) {
-                console.log(chalk.yellow(`Branch "${branchName}" doesn't exist. Creating new branch with worktree...`));
-                // Create a new branch and worktree in one command with -b flag
-                await execa("git", ["worktree", "add", "-b", branchName, resolvedPath]);
-            }
-            else {
-                console.log(chalk.green(`Using existing branch "${branchName}".`));
-                await execa("git", ["worktree", "add", resolvedPath, branchName]);
-            }
-            // 5. (Optional) Install dependencies if --install flag is provided
-            if (options.install) {
-                console.log(chalk.blue(`Installing dependencies using ${options.install} in ${resolvedPath}...`));
-                await execa(options.install, ["install"], { cwd: resolvedPath, stdio: "inherit" });
+            catch (error) {
+                console.error(chalk.red("Failed to create worktree:"), error.message);
+                await atomic.rollback();
+                throw error;
             }
         }
-        // 6. Open in the specified editor (or use configured default)
+        // 7. Open in the specified editor (or use configured default)
         const configuredEditor = getDefaultEditor();
-        const editorCommand = options.editor || configuredEditor; // Use option, then config, fallback is handled by config default
+        const editorCommand = options.editor || configuredEditor;
         if (shouldSkipEditor(editorCommand)) {
             console.log(chalk.gray(`Editor set to 'none', skipping editor open.`));
         }
         else {
             console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
-            // Use try-catch to handle if the editor command fails
             try {
                 await execa(editorCommand, [resolvedPath], { stdio: "inherit" });
             }
             catch (editorError) {
                 console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
-                // Decide if you want to exit or just warn. Let's warn for now.
                 console.warn(chalk.yellow(`Continuing without opening editor.`));
             }
         }
         console.log(chalk.green(`Worktree ${directoryExists ? "opened" : "created"} at ${resolvedPath}.`));
-        if (!directoryExists && options.install)
+        if (!directoryExists && options.install) {
             console.log(chalk.green(`Dependencies installed using ${options.install}.`));
+        }
     }
     catch (error) {
         if (error instanceof Error) {
@@ -136,5 +148,15 @@ export async function newWorktreeHandler(branchName, options = {}) {
             console.error(chalk.red("Failed to create new worktree:"), error);
         }
         process.exit(1);
+    }
+    finally {
+        // Restore stashed changes if we stashed them
+        if (stashed) {
+            console.log(chalk.blue("Restoring your stashed changes..."));
+            const restored = await popStash(".");
+            if (restored) {
+                console.log(chalk.green("Changes restored successfully."));
+            }
+        }
     }
 }
