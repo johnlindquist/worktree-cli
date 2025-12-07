@@ -19,6 +19,10 @@ const schema = {
         enum: ['gh', 'glab'],
         default: 'gh', // Default provider is GitHub CLI
     },
+    defaultWorktreePath: {
+        type: 'string',
+        default: undefined, // No default, falls back to sibling directory behavior
+    },
 };
 const config = new Conf({
     projectName: packageName, // Use the actual package name
@@ -47,4 +51,26 @@ export function getConfigPath() {
 // Function to check if the editor should be skipped (value is "none")
 export function shouldSkipEditor(editor) {
     return editor.toLowerCase() === 'none';
+}
+// Function to get the default worktree path
+export function getDefaultWorktreePath() {
+    return config.get('defaultWorktreePath');
+}
+// Function to set the default worktree path
+export function setDefaultWorktreePath(worktreePath) {
+    // Resolve to absolute path and expand ~ to home directory
+    let resolvedPath;
+    if (worktreePath.startsWith('~')) {
+        const home = process.env.HOME || process.env.USERPROFILE || '';
+        const rest = worktreePath.replace(/^~[\/\\]?/, '');
+        resolvedPath = path.join(home, rest);
+    }
+    else {
+        resolvedPath = path.resolve(worktreePath);
+    }
+    config.set('defaultWorktreePath', resolvedPath);
+}
+// Function to clear the default worktree path
+export function clearDefaultWorktreePath() {
+    config.delete('defaultWorktreePath');
 }

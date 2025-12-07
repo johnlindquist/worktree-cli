@@ -2,7 +2,7 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor, shouldSkipEditor, getGitProvider } from "../config.js";
+import { getDefaultEditor, shouldSkipEditor, getGitProvider, getDefaultWorktreePath } from "../config.js";
 import { getCurrentBranch, isWorktreeClean, isMainRepoBare, detectGitProvider } from "../utils/git.js";
 
 type GitProvider = 'gh' | 'glab';
@@ -142,11 +142,20 @@ export async function prWorktreeHandler(
         if (options.path) {
             folderName = options.path;
         } else {
-            const currentDir = process.cwd();
-            const parentDir = dirname(currentDir);
-            const currentDirName = basename(currentDir);
             const sanitizedBranchName = prBranchName.replace(/\//g, '-');
-            folderName = join(parentDir, `${currentDirName}-${sanitizedBranchName}`);
+
+            // Check for configured default worktree path
+            const defaultWorktreePath = getDefaultWorktreePath();
+            if (defaultWorktreePath) {
+                // Use configured global worktree directory
+                folderName = join(defaultWorktreePath, sanitizedBranchName);
+            } else {
+                // Create a sibling directory using the branch name
+                const currentDir = process.cwd();
+                const parentDir = dirname(currentDir);
+                const currentDirName = basename(currentDir);
+                folderName = join(parentDir, `${currentDirName}-${sanitizedBranchName}`);
+            }
         }
         const resolvedPath = resolve(folderName);
 

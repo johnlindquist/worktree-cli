@@ -3,7 +3,7 @@ import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor, shouldSkipEditor } from "../config.js";
+import { getDefaultEditor, shouldSkipEditor, getDefaultWorktreePath } from "../config.js";
 import { isWorktreeClean, isMainRepoBare, getRepoRoot } from "../utils/git.js";
 
 export async function setupWorktreeHandler(
@@ -34,11 +34,18 @@ export async function setupWorktreeHandler(
             // This handles cases like 'feature/login' -> 'login'
             const shortBranchName = branchName.split('/').filter(part => part.length > 0).pop() || branchName;
 
-            const currentDir = process.cwd();
-            const parentDir = dirname(currentDir);
-            const currentDirName = basename(currentDir);
-            // Create a sibling directory using the short branch name
-            folderName = join(parentDir, `${currentDirName}-${shortBranchName}`);
+            // Check for configured default worktree path
+            const defaultWorktreePath = getDefaultWorktreePath();
+            if (defaultWorktreePath) {
+                // Use configured global worktree directory
+                folderName = join(defaultWorktreePath, shortBranchName);
+            } else {
+                // Create a sibling directory using the short branch name
+                const currentDir = process.cwd();
+                const parentDir = dirname(currentDir);
+                const currentDirName = basename(currentDir);
+                folderName = join(parentDir, `${currentDirName}-${shortBranchName}`);
+            }
         }
         const resolvedPath = resolve(folderName);
 

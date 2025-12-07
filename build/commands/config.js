@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { getDefaultEditor, setDefaultEditor, getGitProvider, setGitProvider, getConfigPath } from '../config.js';
+import { getDefaultEditor, setDefaultEditor, getGitProvider, setGitProvider, getConfigPath, getDefaultWorktreePath, setDefaultWorktreePath, clearDefaultWorktreePath } from '../config.js';
 export async function configHandler(action, key, value) {
     try {
         switch (action) {
@@ -12,9 +12,18 @@ export async function configHandler(action, key, value) {
                     const provider = getGitProvider();
                     console.log(chalk.blue(`Git provider is currently set to: ${chalk.bold(provider)}`));
                 }
+                else if (key === 'worktreepath') {
+                    const worktreePath = getDefaultWorktreePath();
+                    if (worktreePath) {
+                        console.log(chalk.blue(`Default worktree path is currently set to: ${chalk.bold(worktreePath)}`));
+                    }
+                    else {
+                        console.log(chalk.blue(`Default worktree path is not set (using sibling directory behavior).`));
+                    }
+                }
                 else {
                     console.error(chalk.red(`Unknown configuration key to get: ${key}`));
-                    console.error(chalk.yellow(`Available keys: editor, provider`));
+                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath`));
                     process.exit(1);
                 }
                 break;
@@ -32,6 +41,11 @@ export async function configHandler(action, key, value) {
                     setGitProvider(value);
                     console.log(chalk.green(`Git provider set to: ${chalk.bold(value)}`));
                 }
+                else if (key === 'worktreepath' && value) {
+                    setDefaultWorktreePath(value);
+                    const resolvedPath = getDefaultWorktreePath();
+                    console.log(chalk.green(`Default worktree path set to: ${chalk.bold(resolvedPath)}`));
+                }
                 else if (key === 'editor') {
                     console.error(chalk.red(`You must provide an editor name.`));
                     process.exit(1);
@@ -40,9 +54,24 @@ export async function configHandler(action, key, value) {
                     console.error(chalk.red(`You must provide a provider (gh or glab).`));
                     process.exit(1);
                 }
+                else if (key === 'worktreepath') {
+                    console.error(chalk.red(`You must provide a path.`));
+                    process.exit(1);
+                }
                 else {
                     console.error(chalk.red(`Unknown configuration key to set: ${key}`));
-                    console.error(chalk.yellow(`Available keys: editor, provider`));
+                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath`));
+                    process.exit(1);
+                }
+                break;
+            case 'clear':
+                if (key === 'worktreepath') {
+                    clearDefaultWorktreePath();
+                    console.log(chalk.green(`Default worktree path cleared. Will now use sibling directory behavior.`));
+                }
+                else {
+                    console.error(chalk.red(`Unknown configuration key to clear: ${key}`));
+                    console.error(chalk.yellow(`Available keys: worktreepath`));
                     process.exit(1);
                 }
                 break;

@@ -174,6 +174,15 @@ program
           .description("Set the default git provider for PR/MR commands.")
           .action((providerName) => configHandler("set", "provider", providerName))
       )
+      .addCommand(
+        new Command("worktreepath")
+          .argument(
+            "<path>",
+            "Path where all worktrees will be created (e.g., ~/worktrees)"
+          )
+          .description("Set the default directory for new worktrees.")
+          .action((worktreePath) => configHandler("set", "worktreepath", worktreePath))
+      )
   )
   .addCommand(
     new Command("get")
@@ -187,6 +196,20 @@ program
         new Command("provider")
           .description("Get the currently configured git provider.")
           .action(() => configHandler("get", "provider"))
+      )
+      .addCommand(
+        new Command("worktreepath")
+          .description("Get the currently configured default worktree directory.")
+          .action(() => configHandler("get", "worktreepath"))
+      )
+  )
+  .addCommand(
+    new Command("clear")
+      .description("Clear a configuration value.")
+      .addCommand(
+        new Command("worktreepath")
+          .description("Clear the default worktree directory (revert to sibling behavior).")
+          .action(() => configHandler("clear", "worktreepath"))
       )
   )
   .addCommand(
