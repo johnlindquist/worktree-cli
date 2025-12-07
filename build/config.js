@@ -21,7 +21,7 @@ const schema = {
     },
     defaultWorktreePath: {
         type: 'string',
-        default: undefined, // No default, falls back to sibling directory behavior
+        // No default - falls back to sibling directory behavior when not set
     },
 };
 const config = new Conf({
@@ -61,7 +61,10 @@ export function setDefaultWorktreePath(worktreePath) {
     // Resolve to absolute path and expand ~ to home directory
     let resolvedPath;
     if (worktreePath.startsWith('~')) {
-        const home = process.env.HOME || process.env.USERPROFILE || '';
+        const home = process.env.HOME || process.env.USERPROFILE;
+        if (!home) {
+            throw new Error('Cannot expand ~ in path: HOME or USERPROFILE environment variable is not set');
+        }
         const rest = worktreePath.replace(/^~[\/\\]?/, '');
         resolvedPath = path.join(home, rest);
     }

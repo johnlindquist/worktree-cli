@@ -25,14 +25,21 @@ async function getBranchNameFromPR(prNumber, provider) {
             return branchName;
         }
         else {
+            // Use -o json for proper JSON output (not -F which is for Go templates)
             const { stdout } = await execa("glab", [
                 "mr",
                 "view",
                 prNumber,
-                "-F",
+                "-o",
                 "json",
             ]);
-            const mrData = JSON.parse(stdout);
+            let mrData;
+            try {
+                mrData = JSON.parse(stdout);
+            }
+            catch (parseError) {
+                throw new Error(`Failed to parse GitLab MR response: ${parseError.message}`);
+            }
             const branchName = mrData.source_branch;
             if (!branchName) {
                 throw new Error("Could not extract branch name from MR details.");
@@ -55,6 +62,7 @@ async function getBranchNameFromPR(prNumber, provider) {
 }
 export async function prWorktreeHandler(prNumber, options) {
     let originalBranch = null;
+    let hasWarnedAboutCheckout = false;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
@@ -128,6 +136,7 @@ export async function prWorktreeHandler(prNumber, options) {
             catch (checkoutError) {
                 console.warn(chalk.yellow(`⚠️ Warning: Failed to switch main worktree back to original branch "${originalBranch}" after ${cliName} checkout. Please check manually.`));
                 console.warn(checkoutError.stderr || checkoutError.message);
+                hasWarnedAboutCheckout = true;
             }
         }
         // 8. Build final path for the new worktree
@@ -264,7 +273,7 @@ export async function prWorktreeHandler(prNumber, options) {
                 }
             }
             catch (checkoutError) {
-                if (!checkoutError.message.includes("already warned")) {
+                if (!hasWarnedAboutCheckout) {
                     console.warn(chalk.yellow(`⚠️ Warning: Final check failed to switch main worktree back to original branch "${originalBranch}". Please check manually.`));
                     console.warn(checkoutError.stderr || checkoutError.message);
                 }

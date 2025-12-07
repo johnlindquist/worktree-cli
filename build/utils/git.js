@@ -88,15 +88,65 @@ export async function getRepoRoot(cwd = ".") {
         return null;
     }
 }
-// Function to detect git provider from remote URL
+/**
+ * Extract the hostname from a Git remote URL.
+ *
+ * Handles both HTTPS URLs (https://github.com/user/repo.git) and
+ * SSH URLs (git@github.com:user/repo.git or ssh://git@github.com/repo).
+ *
+ * @param remoteUrl - The Git remote URL to parse
+ * @returns The lowercase hostname, or null if parsing fails
+ */
+function getRemoteHostname(remoteUrl) {
+    try {
+        // Handle SSH URLs (e.g., git@github.com:user/repo.git)
+        if (remoteUrl.startsWith("git@")) {
+            const match = remoteUrl.match(/^git@([^:]+):/);
+            if (match) {
+                return match[1].toLowerCase();
+            }
+        }
+        // Handle ssh:// URLs (e.g., ssh://git@github.com/repo)
+        if (remoteUrl.startsWith("ssh://")) {
+            const match = remoteUrl.match(/^ssh:\/\/(?:[^@]+@)?([^/:]+)/);
+            if (match) {
+                return match[1].toLowerCase();
+            }
+        }
+        // Handle HTTP/HTTPS URLs
+        if (remoteUrl.startsWith("http://") || remoteUrl.startsWith("https://")) {
+            const urlObj = new URL(remoteUrl);
+            return urlObj.hostname.toLowerCase();
+        }
+        return null;
+    }
+    catch (e) {
+        return null;
+    }
+}
+/**
+ * Detect the Git hosting provider (GitHub or GitLab) for the repository.
+ *
+ * Examines the remote URL for the 'origin' remote and determines whether
+ * it points to GitHub or GitLab by parsing the hostname.
+ *
+ * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
+ * @returns `'gh'` if the remote is GitHub, `'glab'` if the remote is GitLab, or `null` if undetectable
+ */
 export async function detectGitProvider(cwd = ".") {
     try {
         const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
-        const remoteUrl = stdout.trim().toLowerCase();
-        if (remoteUrl.includes('github.com')) {
+        const remoteUrl = stdout.trim();
+        const hostname = getRemoteHostname(remoteUrl);
+        if (!hostname) {
+            return null;
+        }
+        // Check for GitHub
+        if (hostname === 'github.com') {
             return 'gh';
         }
-        else if (remoteUrl.includes('gitlab.com') || remoteUrl.includes('gitlab.')) {
+        // Check for GitLab (gitlab.com or self-hosted gitlab.* domains)
+        if (hostname === 'gitlab.com' || /^gitlab\.[a-z.]+$/.test(hostname)) {
             return 'glab';
         }
         return null;
