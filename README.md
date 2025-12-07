@@ -50,16 +50,18 @@ wt setup feature/new-feature
 wt setup feature/quick-start -i pnpm
 ```
 
-### Create a new worktree from Pull Request Number
+### Create a new worktree from Pull Request / Merge Request
 
 ```bash
 wt pr <prNumber> [options]
 ```
-Uses the GitHub CLI (`gh`) to check out the branch associated with the given Pull Request number, sets it up locally to track the correct remote branch (handling forks automatically), and then creates a worktree for it.
+Uses the GitHub CLI (`gh`) or GitLab CLI (`glab`) to check out the branch associated with the given Pull Request or Merge Request number, sets it up locally to track the correct remote branch (handling forks automatically), and then creates a worktree for it.
 
-**Benefit:** Commits made in this worktree can be pushed directly using `git push` to update the Pull Request.
+**Benefit:** Commits made in this worktree can be pushed directly using `git push` to update the PR/MR.
 
-**Requires GitHub CLI (`gh`) to be installed and authenticated.**
+**Requires GitHub CLI (`gh`) or GitLab CLI (`glab`) to be installed and authenticated.**
+
+The tool automatically detects whether you're working with a GitHub or GitLab repository based on the remote URL.
 
 Options:
 - `-p, --path <path>`: Specify a custom path for the worktree (defaults to `<repoName>-<branchName>`)
@@ -68,10 +70,10 @@ Options:
 
 Example:
 ```bash
-# Create worktree for PR #123
+# Create worktree for GitHub PR #123
 wt pr 123
 
-# Create worktree for PR #456, install deps with pnpm, open in vscode
+# Create worktree for GitLab MR #456 (auto-detected from remote URL)
 wt pr 456 -i pnpm -e code
 ```
 
@@ -87,6 +89,7 @@ wt config set editor <editorName>
 wt config set editor code     # Use VS Code
 wt config set editor webstorm # Use WebStorm
 wt config set editor cursor   # Use Cursor (default)
+wt config set editor none     # Skip opening editor entirely
 
 # Get current default editor
 wt config get editor
@@ -96,6 +99,57 @@ wt config path
 ```
 
 The default editor will be used when creating new worktrees unless overridden with the `-e` flag.
+
+Setting the editor to `none` will skip opening any editor after creating a worktree, which is useful for CI/CD pipelines or scripts.
+
+### Configure Git Provider
+
+You can manually set the git provider for `wt pr` if auto-detection doesn't work:
+
+```bash
+# Set git provider
+wt config set provider gh    # GitHub CLI
+wt config set provider glab  # GitLab CLI
+
+# Get current provider
+wt config get provider
+```
+
+### Configure Default Worktree Directory
+
+You can set a global directory where all worktrees will be created:
+
+```bash
+# Set default worktree directory
+wt config set worktreepath <path>
+
+# Examples:
+wt config set worktreepath ~/worktrees        # Use ~/worktrees
+wt config set worktreepath /Users/me/dev/.wt   # Use absolute path
+
+# Get current default worktree directory
+wt config get worktreepath
+
+# Clear the setting (revert to sibling directory behavior)
+wt config clear worktreepath
+```
+
+**Path Resolution Priority:**
+1. `--path` flag (highest priority)
+2. `defaultWorktreePath` config setting
+3. Sibling directory behavior (default fallback)
+
+**Behavior Examples:**
+
+Without global path configured (default):
+- Current directory: `/Users/me/projects/myrepo`
+- Command: `wt new feature/login`
+- Creates: `/Users/me/projects/myrepo-login`
+
+With global path configured (`~/worktrees`):
+- Current directory: `/Users/me/projects/myrepo`
+- Command: `wt new feature/login`
+- Creates: `~/worktrees/login`
 
 ### Setup Worktree Configuration
 
@@ -173,8 +227,8 @@ wt remove feature/chat
 
 - Git
 - Node.js
-- An editor installed and available in PATH (defaults to Cursor)
-- **GitHub CLI (`gh`) installed and authenticated (for `wt pr` command)**
+- An editor installed and available in PATH (defaults to Cursor, can be set to `none` to skip)
+- **For `wt pr` command:** GitHub CLI (`gh`) or GitLab CLI (`glab`) installed and authenticated
 
 ## Development
 
