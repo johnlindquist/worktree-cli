@@ -104,7 +104,7 @@ program
   .command("pr")
   .argument(
     "<prNumber>",
-    "GitHub Pull Request number to create a worktree from"
+    "GitHub PR or GitLab MR number to create a worktree from"
   )
   .option(
     "-p, --path <path>",
@@ -118,8 +118,12 @@ program
     "-e, --editor <editor>",
     "Editor to use for opening the worktree (overrides default editor)"
   )
+  .option(
+    "-s, --setup",
+    "Run setup scripts from worktrees.json or .cursor/worktrees.json"
+  )
   .description(
-    "Fetch the branch for a given GitHub PR number and create a worktree."
+    "Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree."
   )
   .action(prWorktreeHandler);
 
@@ -154,15 +158,35 @@ program
   .command("config")
   .description("Manage CLI configuration settings.")
   .addCommand(
-    new Command("set").description("Set a configuration value.").addCommand(
-      new Command("editor")
-        .argument(
-          "<editorName>",
-          "Name of the editor command (e.g., code, cursor, webstorm)"
-        )
-        .description("Set the default editor to open worktrees in.")
-        .action((editorName) => configHandler("set", "editor", editorName))
-    )
+    new Command("set")
+      .description("Set a configuration value.")
+      .addCommand(
+        new Command("editor")
+          .argument(
+            "<editorName>",
+            "Name of the editor command (e.g., code, cursor, webstorm)"
+          )
+          .description("Set the default editor to open worktrees in.")
+          .action((editorName) => configHandler("set", "editor", editorName))
+      )
+      .addCommand(
+        new Command("provider")
+          .argument(
+            "<providerName>",
+            "Name of the git provider CLI (gh for GitHub, glab for GitLab)"
+          )
+          .description("Set the default git provider for PR/MR commands.")
+          .action((providerName) => configHandler("set", "provider", providerName))
+      )
+      .addCommand(
+        new Command("worktreepath")
+          .argument(
+            "<path>",
+            "Path where all worktrees will be created (e.g., ~/worktrees)"
+          )
+          .description("Set the default directory for new worktrees.")
+          .action((worktreePath) => configHandler("set", "worktreepath", worktreePath))
+      )
   )
   .addCommand(
     new Command("get")
@@ -171,6 +195,25 @@ program
         new Command("editor")
           .description("Get the currently configured default editor.")
           .action(() => configHandler("get", "editor"))
+      )
+      .addCommand(
+        new Command("provider")
+          .description("Get the currently configured git provider.")
+          .action(() => configHandler("get", "provider"))
+      )
+      .addCommand(
+        new Command("worktreepath")
+          .description("Get the currently configured default worktree directory.")
+          .action(() => configHandler("get", "worktreepath"))
+      )
+  )
+  .addCommand(
+    new Command("clear")
+      .description("Clear a configuration value.")
+      .addCommand(
+        new Command("worktreepath")
+          .description("Clear the default worktree directory (revert to sibling behavior).")
+          .action(() => configHandler("clear", "worktreepath"))
       )
   )
   .addCommand(

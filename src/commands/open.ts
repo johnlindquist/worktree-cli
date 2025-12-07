@@ -2,7 +2,7 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { getDefaultEditor } from "../config.js";
+import { getDefaultEditor, shouldSkipEditor } from "../config.js";
 
 export async function openWorktreeHandler(
   pathOrBranch: string = "",
@@ -81,20 +81,26 @@ export async function openWorktreeHandler(
     // Open in the specified editor (or use configured default)
     const configuredEditor = getDefaultEditor();
     const editorCommand = options.editor || configuredEditor;
-    console.log(chalk.blue(`Opening ${targetPath} in ${editorCommand}...`));
 
-    try {
-      await execa(editorCommand, [targetPath], { stdio: "inherit" });
-      console.log(
-        chalk.green(`Successfully opened worktree in ${editorCommand}.`)
-      );
-    } catch (editorError) {
-      console.error(
-        chalk.red(
-          `Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`
-        )
-      );
-      process.exit(1);
+    if (shouldSkipEditor(editorCommand)) {
+      console.log(chalk.gray(`Editor set to 'none', skipping editor open.`));
+      console.log(chalk.green(`Worktree path: ${targetPath}`));
+    } else {
+      console.log(chalk.blue(`Opening ${targetPath} in ${editorCommand}...`));
+
+      try {
+        await execa(editorCommand, [targetPath], { stdio: "inherit" });
+        console.log(
+          chalk.green(`Successfully opened worktree in ${editorCommand}.`)
+        );
+      } catch (editorError) {
+        console.error(
+          chalk.red(
+            `Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`
+          )
+        );
+        process.exit(1);
+      }
     }
   } catch (error) {
     if (error instanceof Error) {

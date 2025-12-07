@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { newWorktreeHandler } from "./commands/new.js";
+import { setupWorktreeHandler } from "./commands/setup.js";
 import { listWorktreesHandler } from "./commands/list.js";
 import { removeWorktreeHandler } from "./commands/remove.js";
 import { mergeWorktreeHandler } from "./commands/merge.js";
 import { purgeWorktreesHandler } from "./commands/purge.js";
 import { configHandler } from "./commands/config.js";
 import { prWorktreeHandler } from "./commands/pr.js";
+import { openWorktreeHandler } from "./commands/open.js";
+import { extractWorktreeHandler } from "./commands/extract.js";
 const program = new Command();
 program
     .name("wt")
@@ -21,6 +24,15 @@ program
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (e.g., code, webstorm, windsurf, etc.)")
     .description("Create a new worktree for the specified branch, install dependencies if specified, and open in editor.")
     .action(newWorktreeHandler);
+program
+    .command("setup")
+    .argument("[branchName]", "Name of the branch to base this worktree on")
+    .option("-p, --path <path>", "Relative path/folder name for new worktree")
+    .option("-c, --checkout", "Create new branch if it doesn't exist and checkout automatically", false)
+    .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (e.g., code, webstorm, windsurf, etc.)")
+    .description("Create a new worktree and run setup scripts from worktrees.json or .cursor/worktrees.json")
+    .action(setupWorktreeHandler);
 program
     .command("list")
     .alias("ls")
@@ -45,12 +57,27 @@ program
     .action(purgeWorktreesHandler);
 program
     .command("pr")
-    .argument("<prNumber>", "GitHub Pull Request number to create a worktree from")
+    .argument("<prNumber>", "GitHub PR or GitLab MR number to create a worktree from")
     .option("-p, --path <path>", "Specify a custom path for the worktree (defaults to repoName-branchName)")
     .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
-    .description("Fetch the branch for a given GitHub PR number and create a worktree.")
+    .option("-s, --setup", "Run setup scripts from worktrees.json or .cursor/worktrees.json")
+    .description("Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree.")
     .action(prWorktreeHandler);
+program
+    .command("open")
+    .argument("[pathOrBranch]", "Path to worktree or branch name to open")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
+    .description("Open an existing worktree in the editor.")
+    .action(openWorktreeHandler);
+program
+    .command("extract")
+    .argument("[branchName]", "Name of the branch to extract (defaults to current branch)")
+    .option("-p, --path <path>", "Relative path/folder name for the worktree")
+    .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
+    .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
+    .description("Extract an existing branch as a new worktree. If no branch is specified, extracts the current branch.")
+    .action(extractWorktreeHandler);
 program
     .command("config")
     .description("Manage CLI configuration settings.")
@@ -59,13 +86,32 @@ program
     .addCommand(new Command("editor")
     .argument("<editorName>", "Name of the editor command (e.g., code, cursor, webstorm)")
     .description("Set the default editor to open worktrees in.")
-    .action((editorName) => configHandler('set', 'editor', editorName))))
+    .action((editorName) => configHandler("set", "editor", editorName)))
+    .addCommand(new Command("provider")
+    .argument("<providerName>", "Name of the git provider CLI (gh for GitHub, glab for GitLab)")
+    .description("Set the default git provider for PR/MR commands.")
+    .action((providerName) => configHandler("set", "provider", providerName)))
+    .addCommand(new Command("worktreepath")
+    .argument("<path>", "Path where all worktrees will be created (e.g., ~/worktrees)")
+    .description("Set the default directory for new worktrees.")
+    .action((worktreePath) => configHandler("set", "worktreepath", worktreePath))))
     .addCommand(new Command("get")
     .description("Get a configuration value.")
     .addCommand(new Command("editor")
     .description("Get the currently configured default editor.")
-    .action(() => configHandler('get', 'editor'))))
+    .action(() => configHandler("get", "editor")))
+    .addCommand(new Command("provider")
+    .description("Get the currently configured git provider.")
+    .action(() => configHandler("get", "provider")))
+    .addCommand(new Command("worktreepath")
+    .description("Get the currently configured default worktree directory.")
+    .action(() => configHandler("get", "worktreepath"))))
+    .addCommand(new Command("clear")
+    .description("Clear a configuration value.")
+    .addCommand(new Command("worktreepath")
+    .description("Clear the default worktree directory (revert to sibling behavior).")
+    .action(() => configHandler("clear", "worktreepath"))))
     .addCommand(new Command("path")
     .description("Show the path to the configuration file.")
-    .action(() => configHandler('path')));
+    .action(() => configHandler("path")));
 program.parse(process.argv);

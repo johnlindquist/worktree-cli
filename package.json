@@ -11,6 +11,7 @@
 	},
 	"scripts": {
 		"build": "tsc",
+		"postbuild": "node -e \"const fs = require('fs'); try { fs.chmodSync('build/index.js', 0o755); } catch (e) { if (process.platform !== 'win32') throw e; }\"",
 		"start": "node build/index.js",
 		"dev": "tsc -w",
 		"test": "vitest run",
