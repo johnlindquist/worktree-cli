@@ -67,14 +67,18 @@ Options:
 - `-p, --path <path>`: Specify a custom path for the worktree (defaults to `<repoName>-<branchName>`)
 - `-i, --install <packageManager>`: Package manager to use for installing dependencies (npm, pnpm, bun, etc.)
 - `-e, --editor <editor>`: Editor to use for opening the worktree (overrides default editor)
+- `-s, --setup`: Run setup scripts from `worktrees.json` or `.cursor/worktrees.json`
 
 Example:
 ```bash
 # Create worktree for GitHub PR #123
 wt pr 123
 
-# Create worktree for GitLab MR #456 (auto-detected from remote URL)
+# Create worktree for GitLab MR #456 with deps and editor
 wt pr 456 -i pnpm -e code
+
+# Create worktree and run setup scripts
+wt pr 123 --setup
 ```
 
 ### Configure Default Editor

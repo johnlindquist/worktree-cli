@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
 import { getDefaultEditor, shouldSkipEditor, getGitProvider, getDefaultWorktreePath } from "../config.js";
 import { getCurrentBranch, isWorktreeClean, isMainRepoBare, detectGitProvider } from "../utils/git.js";
+import { runSetupScripts } from "../utils/setup.js";
 
 type GitProvider = 'gh' | 'glab';
 
@@ -58,7 +59,7 @@ async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Pro
 
 export async function prWorktreeHandler(
     prNumber: string,
-    options: { path?: string; install?: string; editor?: string }
+    options: { path?: string; install?: string; editor?: string; setup?: boolean }
 ) {
     let originalBranch: string | null = null;
     try {
@@ -208,7 +209,16 @@ export async function prWorktreeHandler(
                 throw worktreeError;
             }
 
-            // 11. (Optional) Install dependencies
+            // 11. (Optional) Run setup scripts
+            if (options.setup) {
+                console.log(chalk.blue("Running setup scripts..."));
+                const setupRan = await runSetupScripts(resolvedPath);
+                if (!setupRan) {
+                    console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
+                }
+            }
+
+            // 12. (Optional) Install dependencies
             if (options.install) {
                 console.log(chalk.blue(`Installing dependencies using ${options.install} in ${resolvedPath}...`));
                 try {

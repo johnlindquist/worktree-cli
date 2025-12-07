@@ -61,6 +61,7 @@ program
     .option("-p, --path <path>", "Specify a custom path for the worktree (defaults to repoName-branchName)")
     .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
+    .option("-s, --setup", "Run setup scripts from worktrees.json or .cursor/worktrees.json")
     .description("Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree.")
     .action(prWorktreeHandler);
 program

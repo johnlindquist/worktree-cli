@@ -118,6 +118,10 @@ program
     "-e, --editor <editor>",
     "Editor to use for opening the worktree (overrides default editor)"
   )
+  .option(
+    "-s, --setup",
+    "Run setup scripts from worktrees.json or .cursor/worktrees.json"
+  )
   .description(
     "Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree."
   )
