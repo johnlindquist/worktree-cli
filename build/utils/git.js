@@ -156,3 +156,195 @@ export async function detectGitProvider(cwd = ".") {
         return null;
     }
 }
+/**
+ * Parse git worktree list --porcelain output into typed WorktreeInfo objects
+ *
+ * Handles all edge cases including:
+ * - Bare repositories
+ * - Detached HEAD states
+ * - Locked worktrees (with optional reason)
+ * - Prunable (stale) worktrees
+ *
+ * @param cwd - Working directory to run git command from
+ * @returns Array of WorktreeInfo objects sorted by path
+ */
+export async function getWorktrees(cwd = ".") {
+    try {
+        const { stdout } = await execa("git", ["-C", cwd, "worktree", "list", "--porcelain"]);
+        if (!stdout.trim()) {
+            return [];
+        }
+        // Split by double newline to get individual worktree blocks
+        // The porcelain format separates worktrees with blank lines
+        const blocks = stdout.split('\n\n').filter(block => block.trim());
+        const worktrees = [];
+        let isFirstWorktree = true;
+        for (const block of blocks) {
+            const lines = block.split('\n');
+            const info = {
+                path: '',
+                head: '',
+                branch: null,
+                detached: false,
+                locked: false,
+                prunable: false,
+                isMain: isFirstWorktree,
+                bare: false,
+            };
+            for (const line of lines) {
+                if (line.startsWith('worktree ')) {
+                    info.path = line.substring('worktree '.length);
+                }
+                else if (line.startsWith('HEAD ')) {
+                    info.head = line.substring('HEAD '.length);
+                }
+                else if (line.startsWith('branch ')) {
+                    // Convert refs/heads/branch-name to branch-name
+                    const fullRef = line.substring('branch '.length);
+                    info.branch = fullRef.replace('refs/heads/', '');
+                }
+                else if (line === 'detached') {
+                    info.detached = true;
+                }
+                else if (line === 'bare') {
+                    info.bare = true;
+                }
+                else if (line === 'locked') {
+                    info.locked = true;
+                }
+                else if (line.startsWith('locked ')) {
+                    info.locked = true;
+                    info.lockReason = line.substring('locked '.length);
+                }
+                else if (line === 'prunable') {
+                    info.prunable = true;
+                }
+                else if (line.startsWith('prunable ')) {
+                    info.prunable = true;
+                    info.pruneReason = line.substring('prunable '.length);
+                }
+            }
+            if (info.path) {
+                worktrees.push(info);
+            }
+            isFirstWorktree = false;
+        }
+        return worktrees;
+    }
+    catch (error) {
+        console.error(chalk.red("Failed to list worktrees:"), error.stderr || error.message);
+        return [];
+    }
+}
+/**
+ * Find a worktree by branch name
+ *
+ * @param branch - Short branch name to find
+ * @param cwd - Working directory to run git command from
+ * @returns WorktreeInfo if found, null otherwise
+ */
+export async function findWorktreeByBranch(branch, cwd = ".") {
+    const worktrees = await getWorktrees(cwd);
+    return worktrees.find(wt => wt.branch === branch) || null;
+}
+/**
+ * Find a worktree by path
+ *
+ * @param path - Path to find (will be compared against worktree paths)
+ * @param cwd - Working directory to run git command from
+ * @returns WorktreeInfo if found, null otherwise
+ */
+export async function findWorktreeByPath(targetPath, cwd = ".") {
+    const worktrees = await getWorktrees(cwd);
+    const { resolve } = await import('node:path');
+    const { realpath } = await import('node:fs/promises');
+    // Resolve the target path to its real path (following symlinks)
+    // This handles macOS where /var is a symlink to /private/var
+    let resolvedTarget;
+    try {
+        resolvedTarget = await realpath(resolve(targetPath));
+    }
+    catch {
+        resolvedTarget = resolve(targetPath);
+    }
+    for (const wt of worktrees) {
+        let wtRealPath;
+        try {
+            wtRealPath = await realpath(wt.path);
+        }
+        catch {
+            wtRealPath = resolve(wt.path);
+        }
+        if (wtRealPath === resolvedTarget) {
+            return wt;
+        }
+    }
+    return null;
+}
+/**
+ * Get the repository name from the remote URL or directory name
+ *
+ * @param cwd - Working directory to run git command from
+ * @returns Repository name (e.g., "my-project")
+ */
+export async function getRepoName(cwd = ".") {
+    try {
+        // Try to get from remote URL first
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remoteUrl = stdout.trim();
+        // Extract repo name from URL
+        // Handles: git@github.com:user/repo.git, https://github.com/user/repo.git, etc.
+        const match = remoteUrl.match(/\/([^\/]+?)(\.git)?$/);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    catch {
+        // Fall through to directory name
+    }
+    // Fallback: use the directory name of the repo root
+    const repoRoot = await getRepoRoot(cwd);
+    if (repoRoot) {
+        const { basename } = await import('node:path');
+        return basename(repoRoot);
+    }
+    return 'repo';
+}
+/**
+ * Stash changes in the current worktree
+ *
+ * @param cwd - Working directory
+ * @param message - Optional stash message
+ * @returns true if stash was created, false if working tree was clean
+ */
+export async function stashChanges(cwd = ".", message) {
+    try {
+        const args = ["stash", "push", "--include-untracked"];
+        if (message) {
+            args.push("-m", message);
+        }
+        const { stdout } = await execa("git", ["-C", cwd, ...args]);
+        // If stdout contains "No local changes to save", nothing was stashed
+        return !stdout.includes("No local changes to save");
+    }
+    catch (error) {
+        console.error(chalk.red("Failed to stash changes:"), error.stderr || error.message);
+        return false;
+    }
+}
+/**
+ * Pop the most recent stash
+ *
+ * @param cwd - Working directory
+ * @returns true if stash was popped successfully
+ */
+export async function popStash(cwd = ".") {
+    try {
+        await execa("git", ["-C", cwd, "stash", "pop"]);
+        return true;
+    }
+    catch (error) {
+        console.error(chalk.red("Failed to pop stash:"), error.stderr || error.message);
+        return false;
+    }
+}

@@ -2,6 +2,15 @@
 
 A CLI tool for managing Git worktrees with a focus on opening them in the Cursor editor.
 
+## Features
+
+- **Interactive TUI**: Fuzzy-searchable selection when arguments are omitted
+- **Bare Repository Support**: Works with bare repositories for optimal worktree workflows
+- **Atomic Operations**: Automatic rollback on failure for safe worktree creation
+- **Stash-aware**: Gracefully handles dirty worktrees with stash/pop workflow
+- **PR Integration**: Create worktrees directly from GitHub PRs or GitLab MRs
+- **Setup Automation**: Run setup scripts automatically with trust-based security
+
 ## Installation
 
 ```bash
@@ -30,6 +39,11 @@ wt new feature/deps -i pnpm
 wt new feature/vscode -e code
 ```
 
+**Dirty Worktree Handling**: If your main worktree has uncommitted changes, you'll be prompted with options:
+- **Stash changes**: Automatically stash before creating, restore after
+- **Abort**: Cancel the operation
+- **Continue anyway**: Proceed with uncommitted changes
+
 ### Create a new worktree with setup scripts
 
 ```bash
@@ -43,21 +57,26 @@ Options:
 - `-c, --checkout`: Create new branch if it doesn't exist and checkout automatically
 - `-i, --install <packageManager>`: Package manager to use for installing dependencies (npm, pnpm, bun, etc.)
 - `-e, --editor <editor>`: Editor to use for opening the worktree (overrides default editor)
+- `-t, --trust`: Trust and run setup commands without confirmation (for CI environments)
 
 Example:
 ```bash
 wt setup feature/new-feature
 wt setup feature/quick-start -i pnpm
+wt setup feature/ci-build --trust  # Skip confirmation in CI
 ```
 
 ### Create a new worktree from Pull Request / Merge Request
 
 ```bash
-wt pr <prNumber> [options]
+wt pr [prNumber] [options]
 ```
-Uses the GitHub CLI (`gh`) or GitLab CLI (`glab`) to check out the branch associated with the given Pull Request or Merge Request number, sets it up locally to track the correct remote branch (handling forks automatically), and then creates a worktree for it.
 
-**Benefit:** Commits made in this worktree can be pushed directly using `git push` to update the PR/MR.
+**Interactive Selection**: Run `wt pr` without a number to see a list of open PRs/MRs to choose from.
+
+Uses the GitHub CLI (`gh`) or GitLab CLI (`glab`) to fetch the branch associated with the given Pull Request or Merge Request number directly (without switching your current branch), and creates a worktree for it.
+
+**Benefit:** Your main worktree stays untouched. Commits made in the PR worktree can be pushed directly using `git push` to update the PR/MR.
 
 **Requires GitHub CLI (`gh`) or GitLab CLI (`glab`) to be installed and authenticated.**
 
@@ -71,6 +90,9 @@ Options:
 
 Example:
 ```bash
+# Interactive PR selection
+wt pr
+
 # Create worktree for GitHub PR #123
 wt pr 123
 
@@ -80,6 +102,67 @@ wt pr 456 -i pnpm -e code
 # Create worktree and run setup scripts
 wt pr 123 --setup
 ```
+
+### Open an existing worktree
+
+```bash
+wt open [pathOrBranch]
+```
+
+**Interactive Selection**: Run `wt open` without arguments to see a fuzzy-searchable list of worktrees.
+
+Example:
+```bash
+wt open                    # Interactive selection
+wt open feature/login      # Open by branch name
+wt open ./path/to/worktree # Open by path
+```
+
+### List worktrees
+
+```bash
+wt list
+```
+
+Shows all worktrees with their status:
+- Branch name or detached HEAD state
+- Locked/prunable status indicators
+- Main worktree marker
+
+### Remove a worktree
+
+```bash
+wt remove [pathOrBranch] [options]
+```
+
+**Interactive Selection**: Run `wt remove` without arguments to select a worktree to remove.
+
+Options:
+- `-f, --force`: Force removal without confirmation
+
+Example:
+```bash
+wt remove                    # Interactive selection
+wt remove feature/login      # Remove by branch name
+wt remove ./path/to/worktree # Remove by path
+wt remove feature/old -f     # Force remove
+```
+
+### Purge multiple worktrees
+
+```bash
+wt purge
+```
+
+Interactive multi-select interface to remove multiple worktrees at once. The main worktree is excluded from selection.
+
+### Extract current branch to a worktree
+
+```bash
+wt extract [branchName] [options]
+```
+
+Extracts the current (or specified) branch into a separate worktree, useful when you want to continue working on a branch in isolation.
 
 ### Configure Default Editor
 
@@ -140,20 +223,30 @@ wt config clear worktreepath
 
 **Path Resolution Priority:**
 1. `--path` flag (highest priority)
-2. `defaultWorktreePath` config setting
+2. `defaultWorktreePath` config setting (with repo namespace)
 3. Sibling directory behavior (default fallback)
 
-**Behavior Examples:**
+**Path Collision Prevention:**
+
+When using a global worktree directory, paths are automatically namespaced by repository name to prevent collisions:
 
 Without global path configured (default):
 - Current directory: `/Users/me/projects/myrepo`
 - Command: `wt new feature/login`
-- Creates: `/Users/me/projects/myrepo-login`
+- Creates: `/Users/me/projects/myrepo-feature-login`
 
 With global path configured (`~/worktrees`):
 - Current directory: `/Users/me/projects/myrepo`
 - Command: `wt new feature/login`
-- Creates: `~/worktrees/login`
+- Creates: `~/worktrees/myrepo/feature-login`
+
+**Branch Name Sanitization:**
+
+Branch names with slashes are converted to dashes for directory names:
+- `feature/auth` → `feature-auth`
+- `hotfix/urgent-fix` → `hotfix-urgent-fix`
+
+This ensures uniqueness: `feature/auth` and `hotfix/auth` create different directories.
 
 ### Setup Worktree Configuration
 
@@ -188,18 +281,21 @@ The tool checks for `.cursor/worktrees.json` first, then falls back to `worktree
 ]
 ```
 
-#### Security Features
+#### Security Model
 
-- **Command Blocklist**: Dangerous command patterns are automatically blocked
-- **Blocked Patterns**: 
-  - `rm -rf` and recursive deletions
-  - `sudo` and privilege escalation commands
-  - `chmod`, `chown` permission changes
-  - Piping downloads to shell (`curl | sh`, `wget | sh`)
-  - Disk operations (`dd`, `mkfs`, `format`)
-  - System commands (`shutdown`, `reboot`, `kill -9`)
-  - Fork bombs and malicious patterns
-- **Flexible Execution**: Any command not matching dangerous patterns is allowed, giving you full flexibility for legitimate setup tasks
+Setup commands use a **trust-based security model**:
+
+- **Default behavior**: Commands are displayed before execution and require confirmation
+- **Trust mode**: Use `--trust` flag to skip confirmation (for CI environments)
+- **No blocklist**: Unlike regex-based filtering, this model lets you run any legitimate command
+
+```bash
+# Interactive confirmation (default)
+wt setup feature/new
+
+# Trust mode for CI/scripts
+wt setup feature/new --trust
+```
 
 #### Execution Details
 
@@ -209,23 +305,31 @@ The tool checks for `.cursor/worktrees.json` first, then falls back to `worktree
 - If a command fails, the error is logged, but setup continues with the next command
 - The setup runs after worktree creation but before dependency installation (if `--install` is used)
 
-### List worktrees
+### Bare Repository Support
+
+The CLI fully supports bare repositories, which is the most efficient workflow for heavy worktree users:
 
 ```bash
-wt list
+# Clone as bare repository
+git clone --bare git@github.com:user/repo.git repo.git
+
+cd repo.git
+
+# Create worktrees for different branches
+wt new main -p ../main
+wt new feature/auth -p ../auth
+wt new hotfix/urgent -p ../urgent
 ```
 
-### Remove a worktree
+Each worktree is a separate working directory, while the bare repo contains only the `.git` data.
 
-```bash
-wt remove <pathOrBranch>
-```
+## Atomic Operations
 
-You can remove a worktree by either its path or branch name:
-```bash
-wt remove ./feature/login-worktree
-wt remove feature/chat
-```
+All worktree creation operations are atomic with automatic rollback on failure:
+
+1. If worktree creation succeeds but dependency installation fails, the worktree is automatically removed
+2. Stashed changes are restored in the finally block, even if an error occurs
+3. Failed commands are logged but don't leave the system in an inconsistent state
 
 ## Requirements
 
@@ -243,10 +347,25 @@ pnpm install
 # Build
 pnpm build
 
+# Run tests
+pnpm test
+
 # Run in development mode
 pnpm dev
 ```
 
+## Testing
+
+The project includes comprehensive test coverage:
+
+```bash
+# Run all tests
+pnpm test
+
+# Run with coverage
+pnpm test -- --coverage
+```
+
 ## License
 
-MIT 
+MIT
