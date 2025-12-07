@@ -31,3 +31,7 @@ export function setDefaultEditor(editor) {
 export function getConfigPath() {
     return config.path;
 }
+// Function to check if the editor should be skipped (value is "none")
+export function shouldSkipEditor(editor) {
+    return editor.toLowerCase() === 'none';
+}

@@ -2,16 +2,24 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor } from "../config.js";
+import { getDefaultEditor, shouldSkipEditor } from "../config.js";
 import { isWorktreeClean, isMainRepoBare } from "../utils/git.js";
 
 export async function newWorktreeHandler(
-    branchName: string = "main",
-    options: { path?: string; checkout?: boolean; install?: string; editor?: string }
+    branchName?: string,
+    options: { path?: string; checkout?: boolean; install?: string; editor?: string } = {}
 ) {
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
+
+        // Validate branch name is provided
+        if (!branchName || branchName.trim() === "") {
+            console.error(chalk.red("❌ Error: Branch name is required."));
+            console.error(chalk.yellow("Usage: wt new <branchName> [options]"));
+            console.error(chalk.cyan("Example: wt new feature/my-feature --checkout"));
+            process.exit(1);
+        }
 
         console.log(chalk.blue("Checking if main worktree is clean..."));
         const isClean = await isWorktreeClean(".");
@@ -104,19 +112,23 @@ export async function newWorktreeHandler(
         // 6. Open in the specified editor (or use configured default)
         const configuredEditor = getDefaultEditor();
         const editorCommand = options.editor || configuredEditor; // Use option, then config, fallback is handled by config default
-        console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
-        // Use try-catch to handle if the editor command fails
-        try {
-            await execa(editorCommand, [resolvedPath], { stdio: "inherit" });
-        } catch (editorError) {
-            console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
-            // Decide if you want to exit or just warn. Let's warn for now.
-            console.warn(chalk.yellow(`Continuing without opening editor.`));
+
+        if (shouldSkipEditor(editorCommand)) {
+            console.log(chalk.gray(`Editor set to 'none', skipping editor open.`));
+        } else {
+            console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
+            // Use try-catch to handle if the editor command fails
+            try {
+                await execa(editorCommand, [resolvedPath], { stdio: "inherit" });
+            } catch (editorError) {
+                console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
+                // Decide if you want to exit or just warn. Let's warn for now.
+                console.warn(chalk.yellow(`Continuing without opening editor.`));
+            }
         }
 
         console.log(chalk.green(`Worktree ${directoryExists ? "opened" : "created"} at ${resolvedPath}.`));
         if (!directoryExists && options.install) console.log(chalk.green(`Dependencies installed using ${options.install}.`));
-        console.log(chalk.green(`Attempted to open in ${editorCommand}.`));
 
     } catch (error) {
         if (error instanceof Error) {

@@ -41,4 +41,9 @@ export function setDefaultEditor(editor: string): void {
 // Function to get the path to the config file (for debugging/info)
 export function getConfigPath(): string {
     return config.path;
+}
+
+// Function to check if the editor should be skipped (value is "none")
+export function shouldSkipEditor(editor: string): boolean {
+    return editor.toLowerCase() === 'none';
 } 

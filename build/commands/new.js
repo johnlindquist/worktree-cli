@@ -2,20 +2,26 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor } from "../config.js";
-import { isWorktreeClean } from "../utils/git.js";
-export async function newWorktreeHandler(branchName = "main", options) {
+import { getDefaultEditor, shouldSkipEditor } from "../config.js";
+import { isWorktreeClean, isMainRepoBare } from "../utils/git.js";
+export async function newWorktreeHandler(branchName, options = {}) {
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
+        // Validate branch name is provided
+        if (!branchName || branchName.trim() === "") {
+            console.error(chalk.red("❌ Error: Branch name is required."));
+            console.error(chalk.yellow("Usage: wt new <branchName> [options]"));
+            console.error(chalk.cyan("Example: wt new feature/my-feature --checkout"));
+            process.exit(1);
+        }
         console.log(chalk.blue("Checking if main worktree is clean..."));
         const isClean = await isWorktreeClean(".");
         if (!isClean) {
-            console.warn(chalk.yellow("⚠️ Warning: Your main worktree is not clean."));
-            console.warn(chalk.yellow("While 'wt new' might succeed, it's generally recommended to have a clean state."));
-            console.warn(chalk.cyan("Run 'git status' to review changes. Consider committing or stashing."));
-            // Decide whether to exit or just warn. Warning might be sufficient here.
-            // process.exit(1);
+            console.error(chalk.red("❌ Error: Your main worktree is not clean."));
+            console.error(chalk.yellow("Creating a new worktree requires a clean main worktree state."));
+            console.error(chalk.cyan("Please commit, stash, or discard your changes. Run 'git status' to see the changes."));
+            process.exit(1); // Exit if not clean
         }
         else {
             console.log(chalk.green("✅ Main worktree is clean."));
@@ -71,6 +77,12 @@ export async function newWorktreeHandler(branchName = "main", options) {
         }
         else {
             console.log(chalk.blue(`Creating new worktree for branch "${branchName}" at: ${resolvedPath}`));
+            if (await isMainRepoBare()) {
+                console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
+                console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
+                console.error(chalk.cyan("   git config core.bare false"));
+                process.exit(1);
+            }
             if (!branchExists) {
                 console.log(chalk.yellow(`Branch "${branchName}" doesn't exist. Creating new branch with worktree...`));
                 // Create a new branch and worktree in one command with -b flag
@@ -89,20 +101,24 @@ export async function newWorktreeHandler(branchName = "main", options) {
         // 6. Open in the specified editor (or use configured default)
         const configuredEditor = getDefaultEditor();
         const editorCommand = options.editor || configuredEditor; // Use option, then config, fallback is handled by config default
-        console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
-        // Use try-catch to handle if the editor command fails
-        try {
-            await execa(editorCommand, [resolvedPath], { stdio: "inherit" });
+        if (shouldSkipEditor(editorCommand)) {
+            console.log(chalk.gray(`Editor set to 'none', skipping editor open.`));
         }
-        catch (editorError) {
-            console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
-            // Decide if you want to exit or just warn. Let's warn for now.
-            console.warn(chalk.yellow(`Continuing without opening editor.`));
+        else {
+            console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
+            // Use try-catch to handle if the editor command fails
+            try {
+                await execa(editorCommand, [resolvedPath], { stdio: "inherit" });
+            }
+            catch (editorError) {
+                console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
+                // Decide if you want to exit or just warn. Let's warn for now.
+                console.warn(chalk.yellow(`Continuing without opening editor.`));
+            }
         }
         console.log(chalk.green(`Worktree ${directoryExists ? "opened" : "created"} at ${resolvedPath}.`));
         if (!directoryExists && options.install)
             console.log(chalk.green(`Dependencies installed using ${options.install}.`));
-        console.log(chalk.green(`Attempted to open in ${editorCommand}.`));
     }
     catch (error) {
         if (error instanceof Error) {

@@ -2,8 +2,8 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { resolve, join, dirname, basename } from "node:path";
-import { getDefaultEditor } from "../config.js";
-import { getCurrentBranch, isWorktreeClean } from "../utils/git.js";
+import { getDefaultEditor, shouldSkipEditor } from "../config.js";
+import { getCurrentBranch, isWorktreeClean, isMainRepoBare } from "../utils/git.js";
 // Helper function to get PR branch name using gh cli
 async function getBranchNameFromPR(prNumber) {
     try {
@@ -154,6 +154,13 @@ export async function prWorktreeHandler(prNumber, options) {
             // 7. Create the worktree using the PR branch (now only fetched/tracked, not checked out here)
             console.log(chalk.blue(`Creating new worktree for branch "${prBranchName}" at: ${resolvedPath}`));
             try {
+                // >>> ADD SAFETY CHECK HERE <<<
+                if (await isMainRepoBare()) {
+                    console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
+                    console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
+                    console.error(chalk.cyan("   git config core.bare false"));
+                    process.exit(1);
+                }
                 // Use the PR branch name which 'gh pr checkout' fetched/tracked locally
                 await execa("git", ["worktree", "add", resolvedPath, prBranchName]);
                 worktreeCreated = true;
@@ -185,13 +192,18 @@ export async function prWorktreeHandler(prNumber, options) {
         // 9. Open in editor
         const configuredEditor = getDefaultEditor();
         const editorCommand = options.editor || configuredEditor;
-        console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
-        try {
-            await execa(editorCommand, [resolvedPath], { stdio: "ignore", detached: true }); // Detach editor process
+        if (shouldSkipEditor(editorCommand)) {
+            console.log(chalk.gray(`Editor set to 'none', skipping editor open.`));
         }
-        catch (editorError) {
-            console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
-            console.warn(chalk.yellow(`Worktree is ready at ${resolvedPath}. You can open it manually.`));
+        else {
+            console.log(chalk.blue(`Opening ${resolvedPath} in ${editorCommand}...`));
+            try {
+                await execa(editorCommand, [resolvedPath], { stdio: "ignore", detached: true }); // Detach editor process
+            }
+            catch (editorError) {
+                console.error(chalk.red(`Failed to open editor "${editorCommand}". Please ensure it's installed and in your PATH.`));
+                console.warn(chalk.yellow(`Worktree is ready at ${resolvedPath}. You can open it manually.`));
+            }
         }
         console.log(chalk.green(`✅ Worktree for PR #${prNumber} (${prBranchName}) ${worktreeCreated ? "created" : "found"} at ${resolvedPath}.`));
         if (worktreeCreated && options.install)
