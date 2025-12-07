@@ -104,7 +104,7 @@ program
   .command("pr")
   .argument(
     "<prNumber>",
-    "GitHub Pull Request number to create a worktree from"
+    "GitHub PR or GitLab MR number to create a worktree from"
   )
   .option(
     "-p, --path <path>",
@@ -119,7 +119,7 @@ program
     "Editor to use for opening the worktree (overrides default editor)"
   )
   .description(
-    "Fetch the branch for a given GitHub PR number and create a worktree."
+    "Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree."
   )
   .action(prWorktreeHandler);
 
@@ -154,15 +154,26 @@ program
   .command("config")
   .description("Manage CLI configuration settings.")
   .addCommand(
-    new Command("set").description("Set a configuration value.").addCommand(
-      new Command("editor")
-        .argument(
-          "<editorName>",
-          "Name of the editor command (e.g., code, cursor, webstorm)"
-        )
-        .description("Set the default editor to open worktrees in.")
-        .action((editorName) => configHandler("set", "editor", editorName))
-    )
+    new Command("set")
+      .description("Set a configuration value.")
+      .addCommand(
+        new Command("editor")
+          .argument(
+            "<editorName>",
+            "Name of the editor command (e.g., code, cursor, webstorm)"
+          )
+          .description("Set the default editor to open worktrees in.")
+          .action((editorName) => configHandler("set", "editor", editorName))
+      )
+      .addCommand(
+        new Command("provider")
+          .argument(
+            "<providerName>",
+            "Name of the git provider CLI (gh for GitHub, glab for GitLab)"
+          )
+          .description("Set the default git provider for PR/MR commands.")
+          .action((providerName) => configHandler("set", "provider", providerName))
+      )
   )
   .addCommand(
     new Command("get")
@@ -171,6 +182,11 @@ program
         new Command("editor")
           .description("Get the currently configured default editor.")
           .action(() => configHandler("get", "editor"))
+      )
+      .addCommand(
+        new Command("provider")
+          .description("Get the currently configured git provider.")
+          .action(() => configHandler("get", "provider"))
       )
   )
   .addCommand(

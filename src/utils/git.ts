@@ -76,3 +76,21 @@ export async function getRepoRoot(cwd: string = "."): Promise<string | null> {
         return null;
     }
 }
+
+// Function to detect git provider from remote URL
+export async function detectGitProvider(cwd: string = "."): Promise<'gh' | 'glab' | null> {
+    try {
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remoteUrl = stdout.trim().toLowerCase();
+
+        if (remoteUrl.includes('github.com')) {
+            return 'gh';
+        } else if (remoteUrl.includes('gitlab.com') || remoteUrl.includes('gitlab.')) {
+            return 'glab';
+        }
+        return null;
+    } catch (error) {
+        // Could not get remote URL, return null
+        return null;
+    }
+}

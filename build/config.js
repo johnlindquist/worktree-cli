@@ -14,6 +14,11 @@ const schema = {
         type: 'string',
         default: 'cursor', // Default editor is 'cursor'
     },
+    gitProvider: {
+        type: 'string',
+        enum: ['gh', 'glab'],
+        default: 'gh', // Default provider is GitHub CLI
+    },
 };
 const config = new Conf({
     projectName: packageName, // Use the actual package name
@@ -26,6 +31,14 @@ export function getDefaultEditor() {
 // Function to set the default editor
 export function setDefaultEditor(editor) {
     config.set('defaultEditor', editor);
+}
+// Function to get the git provider
+export function getGitProvider() {
+    return config.get('gitProvider');
+}
+// Function to set the git provider
+export function setGitProvider(provider) {
+    config.set('gitProvider', provider);
 }
 // Function to get the path to the config file (for debugging/info)
 export function getConfigPath() {
