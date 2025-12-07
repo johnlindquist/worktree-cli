@@ -6,6 +6,17 @@ import { resolve, join, dirname, basename } from "node:path";
 import { getDefaultEditor, shouldSkipEditor, getDefaultWorktreePath } from "../config.js";
 import { isWorktreeClean, isMainRepoBare, getRepoRoot } from "../utils/git.js";
 
+/**
+ * Create or reuse a Git worktree for the given branch, optionally run repository-defined setup commands, install dependencies, and open the worktree in an editor.
+ *
+ * This handler validates the current repository state (requires a clean main worktree and a non-bare repo), determines or creates a target directory, adds or reuses a worktree for the specified branch, executes safe setup commands from .cursor/worktrees.json or worktrees.json (with a denylist for dangerous patterns), optionally runs an install command in the worktree, and attempts to open the resolved path in the provided or configured editor.
+ *
+ * @param branchName - Branch to create or open (defaults to "main")
+ * @param options.path - Explicit filesystem path or folder name to use for the worktree (if omitted, a sibling folder name is derived from the current directory and branch)
+ * @param options.checkout - (unused by this handler) reserved flag to indicate checkout behavior
+ * @param options.install - Package manager command to run install (e.g., "npm", "pnpm") inside the worktree
+ * @param options.editor - Editor command to open the worktree (overrides the configured default)
+ */
 export async function setupWorktreeHandler(
     branchName: string = "main",
     options: { path?: string; checkout?: boolean; install?: string; editor?: string }
