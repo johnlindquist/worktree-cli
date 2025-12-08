@@ -58,7 +58,7 @@ program
     .action(purgeWorktreesHandler);
 program
     .command("pr")
-    .argument("<prNumber>", "GitHub PR or GitLab MR number to create a worktree from")
+    .argument("[prNumber]", "GitHub PR or GitLab MR number to create a worktree from")
     .option("-p, --path <path>", "Specify a custom path for the worktree (defaults to repoName-branchName)")
     .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
