@@ -3,7 +3,7 @@
 	"version": "0.0.0-development",
 	"packageManager": "pnpm@9.5.0",
 	"description": "A CLI tool for managing Git worktrees with a focus on opening them in the Cursor editor.",
-	"author": "Your Name",
+	"author": "John Lindquist <johnlindquist@gmail.com>",
 	"license": "MIT",
 	"type": "module",
 	"bin": {
