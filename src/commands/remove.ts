@@ -4,6 +4,7 @@ import { stat, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getWorktrees, findWorktreeByBranch, findWorktreeByPath, WorktreeInfo } from "../utils/git.js";
 import { selectWorktree, confirm } from "../utils/tui.js";
+import { withSpinner } from "../utils/spinner.js";
 
 export async function removeWorktreeHandler(
     pathOrBranch: string = "",
@@ -84,19 +85,27 @@ export async function removeWorktreeHandler(
             }
         }
 
-        console.log(chalk.blue(`Removing worktree: ${targetPath}`));
-
         // Remove the worktree
         try {
-            await execa("git", ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath]);
-            console.log(chalk.green("Git worktree metadata removed."));
+            await withSpinner(
+                `Removing worktree: ${targetPath}`,
+                async () => {
+                    await execa("git", ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath]);
+                },
+                "Git worktree metadata removed."
+            );
         } catch (removeError: any) {
             if (removeError.stderr?.includes("modified or untracked files") && !options.force) {
                 console.log(chalk.yellow("Worktree contains modified or untracked files."));
                 const forceRemove = await confirm("Do you want to force remove this worktree (this may lose changes)?", false);
                 if (forceRemove) {
-                    await execa("git", ["worktree", "remove", "--force", targetPath]);
-                    console.log(chalk.green("Git worktree metadata force removed."));
+                    await withSpinner(
+                        `Force removing worktree: ${targetPath}`,
+                        async () => {
+                            await execa("git", ["worktree", "remove", "--force", targetPath]);
+                        },
+                        "Git worktree metadata force removed."
+                    );
                 } else {
                     console.log(chalk.yellow("Removal cancelled."));
                     process.exit(0);

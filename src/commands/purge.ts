@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { stat, rm } from "node:fs/promises";
 import { getWorktrees, WorktreeInfo } from "../utils/git.js";
 import { selectWorktree, confirm } from "../utils/tui.js";
+import { withSpinner } from "../utils/spinner.js";
 
 export async function purgeWorktreesHandler() {
     try {
@@ -80,8 +81,13 @@ export async function purgeWorktreesHandler() {
                 }
 
                 // Try to remove the worktree
-                await execa("git", ["worktree", "remove", wt.path]);
-                console.log(chalk.green(`Removed worktree metadata for ${wt.path}.`));
+                await withSpinner(
+                    `Removing worktree for branch "${wt.branch || '(detached)'}"...`,
+                    async () => {
+                        await execa("git", ["worktree", "remove", wt.path]);
+                    },
+                    `Removed worktree metadata for ${wt.path}.`
+                );
                 removedSuccessfully = true;
 
             } catch (removeError: unknown) {
@@ -94,8 +100,13 @@ export async function purgeWorktreesHandler() {
                     const forceAnswer = await confirm("Force remove this worktree (may lose changes)?", false);
                     if (forceAnswer) {
                         try {
-                            await execa("git", ["worktree", "remove", "--force", wt.path]);
-                            console.log(chalk.green(`Force removed worktree metadata for ${wt.path}.`));
+                            await withSpinner(
+                                `Force removing worktree for branch "${wt.branch || '(detached)'}"...`,
+                                async () => {
+                                    await execa("git", ["worktree", "remove", "--force", wt.path]);
+                                },
+                                `Force removed worktree metadata for ${wt.path}.`
+                            );
                             removedSuccessfully = true;
                         } catch (forceError: unknown) {
                             const forceExecaError = forceError as ExecaError;

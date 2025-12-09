@@ -15,6 +15,7 @@ import { resolveWorktreePath } from "../utils/paths.js";
 import { runSetupScripts } from "../utils/setup.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState, selectPullRequest } from "../utils/tui.js";
+import { withSpinner } from "../utils/spinner.js";
 
 type GitProvider = 'gh' | 'glab';
 
@@ -201,21 +202,36 @@ async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Pro
  * This fetches the PR ref into a local branch without switching the current working directory.
  */
 async function fetchPRBranch(prNumber: string, localBranchName: string, provider: GitProvider): Promise<void> {
+    const isPR = provider === 'gh';
+    const requestType = isPR ? "PR" : "MR";
+
     if (provider === 'gh') {
         // Fetch the PR head ref directly into a local branch
         // This doesn't require checking out or changing the current branch
-        await execa("git", [
-            "fetch", "origin",
-            `refs/pull/${prNumber}/head:${localBranchName}`,
-        ]);
+        await withSpinner(
+            `Fetching ${requestType} #${prNumber} from remote...`,
+            async () => {
+                await execa("git", [
+                    "fetch", "origin",
+                    `refs/pull/${prNumber}/head:${localBranchName}`,
+                ]);
+            },
+            `Successfully fetched ${requestType} #${prNumber} branch "${localBranchName}".`
+        );
     } else {
         // For GitLab, fetch the MR source branch
         // First get the source branch name from the MR
         const branchName = await getBranchNameFromPR(prNumber, provider);
-        await execa("git", [
-            "fetch", "origin",
-            `${branchName}:${localBranchName}`,
-        ]);
+        await withSpinner(
+            `Fetching ${requestType} #${prNumber} from remote...`,
+            async () => {
+                await execa("git", [
+                    "fetch", "origin",
+                    `${branchName}:${localBranchName}`,
+                ]);
+            },
+            `Successfully fetched ${requestType} #${prNumber} branch "${localBranchName}".`
+        );
     }
 }
 
@@ -286,10 +302,8 @@ export async function prWorktreeHandler(
 
         // 6. Improvement #3: Fetch the PR branch directly without checkout
         // This avoids the dangerous context switching that was happening before
-        console.log(chalk.blue(`Fetching ${requestType} #${prNumber} branch directly...`));
         try {
             await fetchPRBranch(prNumber, prBranchName, provider);
-            console.log(chalk.green(`Successfully fetched ${requestType} #${prNumber} branch "${prBranchName}".`));
         } catch (fetchError: any) {
             // If fetch fails, the branch might already exist locally
             // Try to check if the branch exists

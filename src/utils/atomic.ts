@@ -1,6 +1,7 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { rm, stat } from "node:fs/promises";
+import { createSpinner } from "./spinner.js";
 
 type RollbackAction = () => Promise<void>;
 
@@ -109,8 +110,14 @@ export class AtomicWorktreeOperation {
      * @param cwd - Working directory for the install
      */
     async runInstall(packageManager: string, cwd: string): Promise<void> {
-        console.log(chalk.blue(`Installing dependencies with ${packageManager}...`));
-        await execa(packageManager, ["install"], { cwd, stdio: "inherit" });
+        const spinner = createSpinner(`Installing dependencies with ${packageManager}...`).start();
+        try {
+            await execa(packageManager, ["install"], { cwd, stdio: "inherit" });
+            spinner.succeed(`Dependencies installed with ${packageManager}.`);
+        } catch (error) {
+            spinner.fail(`Failed to install dependencies with ${packageManager}.`);
+            throw error;
+        }
         // No rollback action needed for install - the worktree removal handles it
     }
 
@@ -124,8 +131,14 @@ export class AtomicWorktreeOperation {
     async runSetupCommands(commands: string[], cwd: string, env?: NodeJS.ProcessEnv): Promise<void> {
         console.log(chalk.blue("Running setup commands..."));
         for (const command of commands) {
-            console.log(chalk.gray(`Executing: ${command}`));
-            await execa(command, { shell: true, cwd, env, stdio: "inherit" });
+            const spinner = createSpinner(`Executing: ${command}`).start();
+            try {
+                await execa(command, { shell: true, cwd, env, stdio: "inherit" });
+                spinner.succeed(`Completed: ${command}`);
+            } catch (error) {
+                spinner.fail(`Failed: ${command}`);
+                throw error;
+            }
         }
         // No specific rollback - worktree removal handles cleanup
     }

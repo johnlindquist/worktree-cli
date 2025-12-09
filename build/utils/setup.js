@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getRepoRoot } from "./git.js";
+import { createSpinner } from "./spinner.js";
 /**
  * Execute setup commands from worktrees.json or .cursor/worktrees.json
  *
@@ -62,11 +63,13 @@ export async function runSetupScripts(worktreePath) {
         // Execute commands (security is handled by the trust model in the caller)
         const env = { ...process.env, ROOT_WORKTREE_PATH: repoRoot };
         for (const command of commands) {
-            console.log(chalk.gray(`Executing: ${command}`));
+            const spinner = createSpinner(`Executing: ${command}`).start();
             try {
                 await execa(command, { shell: true, cwd: worktreePath, env, stdio: "inherit" });
+                spinner.succeed(`Completed: ${command}`);
             }
             catch (cmdError) {
+                spinner.fail(`Failed: ${command}`);
                 if (cmdError instanceof Error) {
                     console.error(chalk.red(`Setup command failed: ${command}`), cmdError.message);
                 }

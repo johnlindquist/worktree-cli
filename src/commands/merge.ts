@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { stat, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isMainRepoBare, isWorktreeClean } from "../utils/git.js";
+import { withSpinner } from "../utils/spinner.js";
 
 export async function mergeWorktreeHandler(
     branchName: string,
@@ -83,13 +84,16 @@ export async function mergeWorktreeHandler(
         }
 
         // Step 3: Merge the target branch into the current branch
-        await execa("git", ["merge", branchName]);
-        console.log(chalk.green(`Merged branch "${branchName}" into "${currentBranch}".`));
+        await withSpinner(
+            `Merging branch "${branchName}" into "${currentBranch}"...`,
+            async () => {
+                await execa("git", ["merge", branchName]);
+            },
+            `Merged branch "${branchName}" into "${currentBranch}".`
+        );
 
         // Step 4: Remove the worktree if --remove flag is set
         if (options.remove) {
-            console.log(chalk.blue(`Removing worktree for branch "${branchName}"...`));
-
             if (await isMainRepoBare()) {
                 console.error(chalk.red("❌ Error: The main repository is configured as 'bare' (core.bare=true)."));
                 console.error(chalk.red("   This prevents normal Git operations. Please fix the configuration:"));
@@ -98,8 +102,13 @@ export async function mergeWorktreeHandler(
             }
 
             const removeArgs = ["worktree", "remove", ...(options.force ? ["--force"] : []), targetPath];
-            await execa("git", removeArgs);
-            console.log(chalk.green(`Removed worktree at ${targetPath}.`));
+            await withSpinner(
+                `Removing worktree for branch "${branchName}"...`,
+                async () => {
+                    await execa("git", removeArgs);
+                },
+                `Removed worktree at ${targetPath}.`
+            );
 
             // Optionally remove the physical directory if it still exists
             try {
