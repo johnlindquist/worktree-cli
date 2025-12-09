@@ -92,9 +92,12 @@ program
 program
   .command("merge")
   .argument("<branchName>", "Name of the branch to merge from")
-  .option("-f, --force", "Force removal of worktree after merge", false)
+  .option("-f, --force", "Force removal of worktree (when used with --remove)", false)
+  .option("--auto-commit", "Automatically commit uncommitted changes in the target worktree", false)
+  .option("-m, --message <message>", "Commit message to use when auto-committing (requires --auto-commit)")
+  .option("--remove", "Remove the worktree after merging (opt-in destructive cleanup)", false)
   .description(
-    "Commit changes in the target branch and merge them into the current branch, then remove the branch/worktree"
+    "Merge a branch into the current branch. By default, preserves the source worktree after merge."
   )
   .action(mergeWorktreeHandler);
 

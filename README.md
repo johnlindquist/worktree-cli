@@ -164,6 +164,51 @@ wt extract [branchName] [options]
 
 Extracts the current (or specified) branch into a separate worktree, useful when you want to continue working on a branch in isolation.
 
+### Merge a worktree branch
+
+```bash
+wt merge <branchName> [options]
+```
+
+Merge a branch from its worktree into the current branch. The command has been designed with safety in mind to prevent accidental data loss.
+
+**Safety Features:**
+- Checks for uncommitted changes in the target worktree by default
+- Requires explicit opt-in flags for destructive operations
+- Preserves the source worktree after merge by default
+
+Options:
+- `--auto-commit`: Automatically commit uncommitted changes in the target worktree before merging
+- `-m, --message <message>`: Custom commit message when using `--auto-commit` (defaults to auto-generated message)
+- `--remove`: Remove the source worktree after successful merge (opt-in destructive cleanup)
+- `-f, --force`: Force removal of worktree when used with `--remove`
+
+Examples:
+```bash
+# Basic merge (fails if target worktree has uncommitted changes)
+wt merge feature/login
+
+# Auto-commit changes with custom message, then merge
+wt merge feature/login --auto-commit -m "WIP: Login implementation"
+
+# Merge and remove the source worktree
+wt merge feature/login --remove
+
+# Auto-commit, merge, and remove in one command
+wt merge feature/login --auto-commit --remove
+
+# Force remove worktree even if it has uncommitted changes
+wt merge feature/login --remove --force
+```
+
+**Default Behavior Changes:**
+
+The `wt merge` command now follows these safer defaults:
+1. **Dirty State Check**: Fails if the target worktree has uncommitted changes (use `--auto-commit` to override)
+2. **Worktree Preservation**: Keeps the source worktree after merge (use `--remove` to clean up)
+
+This prevents the previous destructive behavior where uncommitted changes were auto-committed with generic messages and worktrees were automatically deleted.
+
 ### Configure Default Editor
 
 You can set a default editor to be used when creating new worktrees:
