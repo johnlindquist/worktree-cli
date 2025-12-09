@@ -1,73 +1,18 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { getDefaultEditor, shouldSkipEditor } from "../config.js";
 import {
     isWorktreeClean,
     isMainRepoBare,
-    getRepoRoot,
     stashChanges,
     popStash,
 } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
-import { handleDirtyState, confirmCommands } from "../utils/tui.js";
-
-interface WorktreeSetupData {
-    "setup-worktree"?: string[];
-    [key: string]: unknown;
-}
-
-/**
- * Load and parse setup commands from worktrees.json
- */
-async function loadSetupCommands(repoRoot: string): Promise<{ commands: string[]; filePath: string } | null> {
-    // Check for .cursor/worktrees.json first
-    const cursorSetupPath = join(repoRoot, ".cursor", "worktrees.json");
-    try {
-        await stat(cursorSetupPath);
-        const content = await readFile(cursorSetupPath, "utf-8");
-        const data = JSON.parse(content) as WorktreeSetupData | string[];
-
-        let commands: string[] = [];
-        if (Array.isArray(data)) {
-            commands = data;
-        } else if (data && typeof data === 'object' && Array.isArray(data["setup-worktree"])) {
-            commands = data["setup-worktree"];
-        }
-
-        if (commands.length > 0) {
-            return { commands, filePath: cursorSetupPath };
-        }
-    } catch {
-        // Not found, try fallback
-    }
-
-    // Check for worktrees.json
-    const fallbackSetupPath = join(repoRoot, "worktrees.json");
-    try {
-        await stat(fallbackSetupPath);
-        const content = await readFile(fallbackSetupPath, "utf-8");
-        const data = JSON.parse(content) as WorktreeSetupData | string[];
-
-        let commands: string[] = [];
-        if (Array.isArray(data)) {
-            commands = data;
-        } else if (data && typeof data === 'object' && Array.isArray(data["setup-worktree"])) {
-            commands = data["setup-worktree"];
-        }
-
-        if (commands.length > 0) {
-            return { commands, filePath: fallbackSetupPath };
-        }
-    } catch {
-        // Not found
-    }
-
-    return null;
-}
+import { handleDirtyState } from "../utils/tui.js";
+import { runSetupScriptsSecure } from "../utils/setup.js";
 
 export async function setupWorktreeHandler(
     branchName: string = "main",
@@ -169,30 +114,13 @@ export async function setupWorktreeHandler(
 
                 // 7. Execute setup-worktree commands if setup file exists
                 // Improvement #6: Replace regex security with trust model
-                const repoRoot = await getRepoRoot();
-                if (repoRoot) {
-                    const setupResult = await loadSetupCommands(repoRoot);
+                const setupRan = await runSetupScriptsSecure(resolvedPath, {
+                    trust: options.trust,
+                });
 
-                    if (setupResult) {
-                        console.log(chalk.blue(`Found setup file: ${setupResult.filePath}`));
-
-                        // Show commands and ask for confirmation (unless --trust flag is set)
-                        const shouldRun = await confirmCommands(setupResult.commands, {
-                            title: "The following setup commands will be executed:",
-                            trust: options.trust,
-                        });
-
-                        if (shouldRun) {
-                            const env = { ...process.env, ROOT_WORKTREE_PATH: repoRoot };
-                            await atomic.runSetupCommands(setupResult.commands, resolvedPath, env);
-                            console.log(chalk.green("Setup commands completed."));
-                        } else {
-                            console.log(chalk.yellow("Setup commands skipped."));
-                        }
-                    } else {
-                        console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
-                        console.log(chalk.yellow("Tip: Create a worktrees.json file to automate setup commands."));
-                    }
+                if (!setupRan) {
+                    console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
+                    console.log(chalk.yellow("Tip: Create a worktrees.json file to automate setup commands."));
                 }
 
                 // 8. Install dependencies if specified
