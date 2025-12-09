@@ -19,9 +19,125 @@ import { handleDirtyState, selectPullRequest } from "../utils/tui.js";
 type GitProvider = 'gh' | 'glab';
 
 /**
- * Get PR/MR branch name using gh or glab cli
+ * Extract repository owner and name from git remote URL
+ */
+async function getRepoInfo(): Promise<{ owner: string; repo: string }> {
+    const { stdout } = await execa("git", ["config", "--get", "remote.origin.url"]);
+    const remoteUrl = stdout.trim();
+
+    // Match patterns like:
+    // - https://github.com/owner/repo.git
+    // - git@github.com:owner/repo.git
+    // - https://gitlab.com/owner/repo.git
+    // - git@gitlab.com:owner/repo.git
+    const match = remoteUrl.match(/[:/]([^/]+)\/([^/]+?)(\.git)?$/);
+    if (!match) {
+        throw new Error(`Could not parse repository info from remote URL: ${remoteUrl}`);
+    }
+
+    return {
+        owner: match[1],
+        repo: match[2],
+    };
+}
+
+/**
+ * Fetch PR branch name using GitHub REST API
+ */
+async function fetchGitHubPRBranch(prNumber: string): Promise<string> {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) {
+        throw new Error(
+            "GITHUB_TOKEN environment variable is required when 'gh' CLI is not installed.\n" +
+            "Please set it with: export GITHUB_TOKEN=your_token_here\n" +
+            "You can create a token at: https://github.com/settings/tokens"
+        );
+    }
+
+    const { owner, repo } = await getRepoInfo();
+    const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
+
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        },
+    });
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            throw new Error(`Pull Request #${prNumber} not found.`);
+        }
+        if (response.status === 401) {
+            throw new Error("GitHub authentication failed. Please check your GITHUB_TOKEN.");
+        }
+        throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const branchName = data.head?.ref;
+
+    if (!branchName) {
+        throw new Error("Could not extract branch name from GitHub API response.");
+    }
+
+    return branchName;
+}
+
+/**
+ * Fetch MR branch name using GitLab REST API
+ */
+async function fetchGitLabMRBranch(prNumber: string): Promise<string> {
+    const token = process.env.GITLAB_TOKEN;
+    if (!token) {
+        throw new Error(
+            "GITLAB_TOKEN environment variable is required when 'glab' CLI is not installed.\n" +
+            "Please set it with: export GITLAB_TOKEN=your_token_here\n" +
+            "You can create a token at: https://gitlab.com/-/profile/personal_access_tokens"
+        );
+    }
+
+    const { owner, repo } = await getRepoInfo();
+    // GitLab uses URL-encoded project path (owner/repo)
+    const projectPath = encodeURIComponent(`${owner}/${repo}`);
+    const url = `https://gitlab.com/api/v4/projects/${projectPath}/merge_requests/${prNumber}`;
+
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+        },
+    });
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            throw new Error(`Merge Request #${prNumber} not found.`);
+        }
+        if (response.status === 401) {
+            throw new Error("GitLab authentication failed. Please check your GITLAB_TOKEN.");
+        }
+        throw new Error(`GitLab API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const branchName = data.source_branch;
+
+    if (!branchName) {
+        throw new Error("Could not extract branch name from GitLab API response.");
+    }
+
+    return branchName;
+}
+
+/**
+ * Get PR/MR branch name using gh/glab CLI with API fallback
  */
 async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Promise<string> {
+    const isPR = provider === 'gh';
+    const requestType = isPR ? "Pull Request" : "Merge Request";
+    const cliName = isPR ? "gh" : "glab";
+
     try {
         if (provider === 'gh') {
             const { stdout } = await execa("gh", [
@@ -49,14 +165,30 @@ async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Pro
             return branchName;
         }
     } catch (error: any) {
-        const isPR = provider === 'gh';
-        const requestType = isPR ? "Pull Request" : "Merge Request";
-        const cliName = isPR ? "gh" : "glab";
+        // Check if this is a "CLI not found" error (ENOENT)
+        if (error.code === 'ENOENT' || error.message?.includes("ENOENT")) {
+            console.log(chalk.yellow(`${cliName} CLI not found. Attempting to use ${isPR ? 'GitHub' : 'GitLab'} REST API...`));
 
+            try {
+                // Fallback to REST API
+                if (provider === 'gh') {
+                    return await fetchGitHubPRBranch(prNumber);
+                } else {
+                    return await fetchGitLabMRBranch(prNumber);
+                }
+            } catch (apiError: any) {
+                throw new Error(
+                    `Failed to fetch ${requestType} via API: ${apiError.message}\n` +
+                    `Alternatively, install the ${cliName} CLI: brew install ${cliName}`
+                );
+            }
+        }
+
+        // Handle other errors from CLI
         if (error.stderr?.includes("Could not find") || error.stderr?.includes("not found")) {
             throw new Error(`${requestType} #${prNumber} not found.`);
         }
-        if (error.stderr?.includes(`${cliName} not found`) || error.message?.includes("ENOENT")) {
+        if (error.stderr?.includes(`${cliName} not found`)) {
             throw new Error(`${isPR ? 'GitHub' : 'GitLab'} CLI ('${cliName}') not found. Please install it (brew install ${cliName}) and authenticate (${cliName} auth login).`);
         }
         throw new Error(`Failed to get ${requestType} details: ${error.message || error.stderr || error}`);
