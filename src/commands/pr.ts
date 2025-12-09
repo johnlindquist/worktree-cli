@@ -10,6 +10,7 @@ import {
     getWorktrees,
     stashChanges,
     popStash,
+    getUpstreamRemote,
 } from "../utils/git.js";
 import { resolveWorktreePath } from "../utils/paths.js";
 import { runSetupScriptsSecure } from "../utils/setup.js";
@@ -204,6 +205,7 @@ async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Pro
 async function fetchPRBranch(prNumber: string, localBranchName: string, provider: GitProvider): Promise<void> {
     const isPR = provider === 'gh';
     const requestType = isPR ? "PR" : "MR";
+    const remote = await getUpstreamRemote();
 
     if (provider === 'gh') {
         // Fetch the PR head ref directly into a local branch
@@ -212,7 +214,7 @@ async function fetchPRBranch(prNumber: string, localBranchName: string, provider
             `Fetching ${requestType} #${prNumber} from remote...`,
             async () => {
                 await execa("git", [
-                    "fetch", "origin",
+                    "fetch", remote,
                     `refs/pull/${prNumber}/head:${localBranchName}`,
                 ]);
             },
@@ -226,7 +228,7 @@ async function fetchPRBranch(prNumber: string, localBranchName: string, provider
             `Fetching ${requestType} #${prNumber} from remote...`,
             async () => {
                 await execa("git", [
-                    "fetch", "origin",
+                    "fetch", remote,
                     `${branchName}:${localBranchName}`,
                 ]);
             },

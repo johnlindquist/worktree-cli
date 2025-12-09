@@ -76,6 +76,76 @@ export async function isMainRepoBare(cwd: string = '.'): Promise<boolean> {
 }
 
 /**
+ * Determine the upstream remote name for the repository.
+ *
+ * Intelligently determines the correct remote to use by:
+ * 1. Checking the tracking information for the main branch
+ * 2. Falling back to common remote names ('origin', 'upstream')
+ * 3. Using the first available remote if no common names are found
+ *
+ * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
+ * @returns The remote name (e.g., 'origin', 'upstream'), or 'origin' as a fallback
+ */
+export async function getUpstreamRemote(cwd: string = "."): Promise<string> {
+    try {
+        // Strategy 1: Try to get the remote from the main branch's tracking information
+        // This handles cases where main is tracking upstream/main instead of origin/main
+        try {
+            const { stdout: mainBranch } = await execa("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "main@{upstream}"], {
+                reject: false,
+            });
+
+            if (mainBranch && mainBranch.trim()) {
+                // Extract remote name from refs/remotes/upstream/main -> upstream
+                const match = mainBranch.trim().match(/^([^\/]+)\//);
+                if (match && match[1]) {
+                    return match[1];
+                }
+            }
+        } catch {
+            // main branch doesn't have upstream tracking, try master
+            try {
+                const { stdout: masterBranch } = await execa("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "master@{upstream}"], {
+                    reject: false,
+                });
+
+                if (masterBranch && masterBranch.trim()) {
+                    const match = masterBranch.trim().match(/^([^\/]+)\//);
+                    if (match && match[1]) {
+                        return match[1];
+                    }
+                }
+            } catch {
+                // Neither main nor master have upstream tracking
+            }
+        }
+
+        // Strategy 2: Get all remotes and check for common names
+        const { stdout: remotesOutput } = await execa("git", ["-C", cwd, "remote"]);
+        const remotes = remotesOutput.split('\n').map(r => r.trim()).filter(r => r);
+
+        if (remotes.length === 0) {
+            // No remotes configured, return 'origin' as fallback
+            return 'origin';
+        }
+
+        // Check for common remote names in order of preference
+        const commonRemotes = ['origin', 'upstream'];
+        for (const commonRemote of commonRemotes) {
+            if (remotes.includes(commonRemote)) {
+                return commonRemote;
+            }
+        }
+
+        // Strategy 3: Use the first available remote
+        return remotes[0];
+    } catch (error) {
+        // If all else fails, return 'origin' as a reasonable default
+        return 'origin';
+    }
+}
+
+/**
  * Determine the top-level directory of the Git repository containing the given working directory.
  *
  * @param cwd - Path of the working directory to query (defaults to the current directory)
@@ -130,7 +200,7 @@ function getRemoteHostname(remoteUrl: string): string | null {
 /**
  * Detect the Git hosting provider (GitHub or GitLab) for the repository.
  *
- * Examines the remote URL for the 'origin' remote and determines whether
+ * Examines the remote URL for the upstream remote and determines whether
  * it points to GitHub or GitLab by parsing the hostname.
  *
  * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
@@ -138,7 +208,8 @@ function getRemoteHostname(remoteUrl: string): string | null {
  */
 export async function detectGitProvider(cwd: string = "."): Promise<'gh' | 'glab' | null> {
     try {
-        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remote = await getUpstreamRemote(cwd);
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", remote]);
         const remoteUrl = stdout.trim();
         const hostname = getRemoteHostname(remoteUrl);
 
@@ -325,7 +396,8 @@ export async function findWorktreeByPath(targetPath: string, cwd: string = "."):
 export async function getRepoName(cwd: string = "."): Promise<string> {
     try {
         // Try to get from remote URL first
-        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remote = await getUpstreamRemote(cwd);
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", remote]);
         const remoteUrl = stdout.trim();
 
         // Extract repo name from URL
