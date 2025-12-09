@@ -199,6 +199,24 @@ program
           .description("Set the default directory for new worktrees.")
           .action((worktreePath) => configHandler("set", "worktreepath", worktreePath))
       )
+      .addCommand(
+        new Command("trust")
+          .argument(
+            "<value>",
+            "Enable or disable trust mode (true/false)"
+          )
+          .description("Set trust mode to skip setup command confirmations.")
+          .action((value) => configHandler("set", "trust", value))
+      )
+      .addCommand(
+        new Command("subfolder")
+          .argument(
+            "<value>",
+            "Enable or disable subfolder mode (true/false)"
+          )
+          .description("Set subfolder mode for worktree paths (my-app-worktrees/feature).")
+          .action((value) => configHandler("set", "subfolder", value))
+      )
   )
   .addCommand(
     new Command("get")
@@ -217,6 +235,16 @@ program
         new Command("worktreepath")
           .description("Get the currently configured default worktree directory.")
           .action(() => configHandler("get", "worktreepath"))
+      )
+      .addCommand(
+        new Command("trust")
+          .description("Get the current trust mode setting.")
+          .action(() => configHandler("get", "trust"))
+      )
+      .addCommand(
+        new Command("subfolder")
+          .description("Get the current subfolder mode setting.")
+          .action(() => configHandler("get", "subfolder"))
       )
   )
   .addCommand(

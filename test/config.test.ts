@@ -381,4 +381,96 @@ describe('Config Management', () => {
             expect(invalidResult.stderr).toContain('Valid providers: gh, glab');
         });
     });
+
+    describe('Trust config (Issue #34)', () => {
+        it('should get trust mode default (disabled)', async () => {
+            const result = await runConfig(['get', 'trust']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Trust mode is currently');
+        });
+
+        it('should set trust mode to true', async () => {
+            const result = await runConfig(['set', 'trust', 'true']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Trust mode enabled');
+
+            const config = await getConfigFileContent();
+            expect(config).toBeDefined();
+            expect(config.trust).toBe(true);
+        });
+
+        it('should set trust mode to false', async () => {
+            // First enable it
+            await runConfig(['set', 'trust', 'true']);
+
+            // Then disable it
+            const result = await runConfig(['set', 'trust', 'false']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Trust mode disabled');
+
+            const config = await getConfigFileContent();
+            expect(config).toBeDefined();
+            expect(config.trust).toBe(false);
+        });
+
+        it('should accept 1 as truthy value', async () => {
+            const result = await runConfig(['set', 'trust', '1']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Trust mode enabled');
+
+            const config = await getConfigFileContent();
+            expect(config.trust).toBe(true);
+        });
+    });
+
+    describe('Subfolder config (Issue #33)', () => {
+        it('should get subfolder mode default (disabled)', async () => {
+            const result = await runConfig(['get', 'subfolder']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Subfolder mode is currently');
+        });
+
+        it('should set subfolder mode to true', async () => {
+            const result = await runConfig(['set', 'subfolder', 'true']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Subfolder mode enabled');
+            expect(result.stdout).toContain('my-app-worktrees/feature');
+
+            const config = await getConfigFileContent();
+            expect(config).toBeDefined();
+            expect(config.worktreeSubfolder).toBe(true);
+        });
+
+        it('should set subfolder mode to false', async () => {
+            // First enable it
+            await runConfig(['set', 'subfolder', 'true']);
+
+            // Then disable it
+            const result = await runConfig(['set', 'subfolder', 'false']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Subfolder mode disabled');
+            expect(result.stdout).toContain('siblings');
+
+            const config = await getConfigFileContent();
+            expect(config).toBeDefined();
+            expect(config.worktreeSubfolder).toBe(false);
+        });
+
+        it('should accept 1 as truthy value', async () => {
+            const result = await runConfig(['set', 'subfolder', '1']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain('Subfolder mode enabled');
+
+            const config = await getConfigFileContent();
+            expect(config.worktreeSubfolder).toBe(true);
+        });
+    });
 });
