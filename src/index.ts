@@ -111,7 +111,7 @@ program
 program
   .command("pr")
   .argument(
-    "<prNumber>",
+    "[prNumber]",
     "GitHub PR or GitLab MR number to create a worktree from"
   )
   .option(
