@@ -10,6 +10,7 @@ import {
     getRepoRoot,
     stashChanges,
     popStash,
+    getUpstreamRemote,
 } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
@@ -132,8 +133,9 @@ export async function setupWorktreeHandler(
         }
 
         // 5. Check if branch exists
+        const remote = await getUpstreamRemote();
         const { stdout: localBranches } = await execa("git", ["branch", "--list", branchName]);
-        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `origin/${branchName}`]);
+        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `${remote}/${branchName}`]);
         const branchExists = !!localBranches || !!remoteBranches;
 
         // 6. Create the new worktree or open the editor if it already exists

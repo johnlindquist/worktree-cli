@@ -10,6 +10,7 @@ import {
     getWorktrees,
     stashChanges,
     popStash,
+    getUpstreamRemote,
 } from "../utils/git.js";
 import { resolveWorktreePath } from "../utils/paths.js";
 import { runSetupScripts } from "../utils/setup.js";
@@ -69,11 +70,13 @@ async function getBranchNameFromPR(prNumber: string, provider: GitProvider): Pro
  * This fetches the PR ref into a local branch without switching the current working directory.
  */
 async function fetchPRBranch(prNumber: string, localBranchName: string, provider: GitProvider): Promise<void> {
+    const remote = await getUpstreamRemote();
+
     if (provider === 'gh') {
         // Fetch the PR head ref directly into a local branch
         // This doesn't require checking out or changing the current branch
         await execa("git", [
-            "fetch", "origin",
+            "fetch", remote,
             `refs/pull/${prNumber}/head:${localBranchName}`,
         ]);
     } else {
@@ -81,7 +84,7 @@ async function fetchPRBranch(prNumber: string, localBranchName: string, provider
         // First get the source branch name from the MR
         const branchName = await getBranchNameFromPR(prNumber, provider);
         await execa("git", [
-            "fetch", "origin",
+            "fetch", remote,
             `${branchName}:${localBranchName}`,
         ]);
     }

@@ -9,6 +9,7 @@ import {
     getWorktrees,
     stashChanges,
     popStash,
+    getUpstreamRemote,
 } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
@@ -87,14 +88,15 @@ export async function extractWorktreeHandler(
         }
 
         // 6. Verify the branch exists (either locally or remotely)
+        const remote = await getUpstreamRemote();
         const { stdout: localBranches } = await execa("git", ["branch", "--format=%(refname:short)"]);
         const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--format=%(refname:short)"]);
 
         const localBranchList = localBranches.split('\n').filter(b => b.trim() !== '');
         const remoteBranchList = remoteBranches
             .split('\n')
-            .filter(b => b.trim() !== '' && b.startsWith('origin/'))
-            .map(b => b.replace('origin/', ''));
+            .filter(b => b.trim() !== '' && b.startsWith(`${remote}/`))
+            .map(b => b.replace(`${remote}/`, ''));
 
         const branchExistsLocally = localBranchList.includes(selectedBranch);
         const branchExistsRemotely = remoteBranchList.includes(selectedBranch);
@@ -128,7 +130,7 @@ export async function extractWorktreeHandler(
         try {
             if (!branchExistsLocally && branchExistsRemotely) {
                 console.log(chalk.yellow(`Branch "${selectedBranch}" is remote-only. Creating local tracking branch...`));
-                await atomic.createWorktreeFromRemote(resolvedPath, selectedBranch, `origin/${selectedBranch}`);
+                await atomic.createWorktreeFromRemote(resolvedPath, selectedBranch, `${remote}/${selectedBranch}`);
             } else {
                 await atomic.createWorktree(resolvedPath, selectedBranch, false);
             }
