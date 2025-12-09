@@ -127,6 +127,10 @@ program
     "-s, --setup",
     "Run setup scripts from worktrees.json or .cursor/worktrees.json"
   )
+  .option(
+    "-t, --trust",
+    "Trust and execute setup scripts without confirmation (use with caution)"
+  )
   .description(
     "Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree."
   )

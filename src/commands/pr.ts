@@ -12,7 +12,7 @@ import {
     popStash,
 } from "../utils/git.js";
 import { resolveWorktreePath } from "../utils/paths.js";
-import { runSetupScripts } from "../utils/setup.js";
+import { runSetupScriptsSecure } from "../utils/setup.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState, selectPullRequest } from "../utils/tui.js";
 
@@ -89,7 +89,7 @@ async function fetchPRBranch(prNumber: string, localBranchName: string, provider
 
 export async function prWorktreeHandler(
     prNumber?: string,
-    options: { path?: string; install?: string; editor?: string; setup?: boolean } = {}
+    options: { path?: string; install?: string; editor?: string; setup?: boolean; trust?: boolean } = {}
 ) {
     let stashed = false;
 
@@ -212,10 +212,12 @@ export async function prWorktreeHandler(
                 await atomic.createWorktree(resolvedPath, prBranchName, false);
                 worktreeCreated = true;
 
-                // 10. Run setup scripts if requested
+                // 10. Run setup scripts if requested (with secure confirmation)
                 if (options.setup) {
                     console.log(chalk.blue("Running setup scripts..."));
-                    const setupRan = await runSetupScripts(resolvedPath);
+                    const setupRan = await runSetupScriptsSecure(resolvedPath, {
+                        trust: options.trust,
+                    });
                     if (!setupRan) {
                         console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
                     }
