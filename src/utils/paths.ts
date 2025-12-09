@@ -1,5 +1,5 @@
 import { join, dirname, basename, resolve } from "node:path";
-import { getDefaultWorktreePath } from "../config.js";
+import { getDefaultWorktreePath, getWorktreeSubfolder } from "../config.js";
 import { getRepoName } from "./git.js";
 
 /**
@@ -48,10 +48,11 @@ export interface ResolveWorktreePathOptions {
 /**
  * Resolve the full path for a new worktree
  *
- * Handles three cases:
+ * Handles four cases:
  * 1. Custom path provided - use it directly
  * 2. Global defaultWorktreePath configured - use it with repo namespace
- * 3. No config - create sibling directory
+ * 3. Subfolder mode enabled - create in my-app-worktrees/feature pattern
+ * 4. No config - create sibling directory (my-app-feature)
  *
  * @param branchName - The branch name to create worktree for
  * @param options - Configuration options
@@ -88,9 +89,18 @@ export async function resolveWorktreePath(
         return join(defaultWorktreePath, worktreeName);
     }
 
-    // Case 3: No config - create sibling directory
+    // Check if subfolder mode is enabled
+    const useSubfolder = getWorktreeSubfolder();
     const parentDir = dirname(cwd);
     const currentDirName = basename(cwd);
+
+    if (useSubfolder) {
+        // Case 3: Subfolder mode - create in my-app-worktrees/feature pattern
+        // This keeps worktrees organized in a dedicated folder
+        return join(parentDir, `${currentDirName}-worktrees`, worktreeName);
+    }
+
+    // Case 4: No config - create sibling directory (my-app-feature)
     return join(parentDir, `${currentDirName}-${worktreeName}`);
 }
 

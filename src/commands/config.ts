@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { getDefaultEditor, setDefaultEditor, getGitProvider, setGitProvider, getConfigPath, getDefaultWorktreePath, setDefaultWorktreePath, clearDefaultWorktreePath } from '../config.js';
+import { getDefaultEditor, setDefaultEditor, getGitProvider, setGitProvider, getConfigPath, getDefaultWorktreePath, setDefaultWorktreePath, clearDefaultWorktreePath, getTrust, setTrust, getWorktreeSubfolder, setWorktreeSubfolder } from '../config.js';
 
 export async function configHandler(action: 'get' | 'set' | 'path' | 'clear', key?: string, value?: string) {
     try {
@@ -18,9 +18,23 @@ export async function configHandler(action: 'get' | 'set' | 'path' | 'clear', ke
                     } else {
                         console.log(chalk.blue(`Default worktree path is not set (using sibling directory behavior).`));
                     }
+                } else if (key === 'trust') {
+                    const trust = getTrust();
+                    console.log(chalk.blue(`Trust mode is currently: ${chalk.bold(trust ? 'enabled' : 'disabled')}`));
+                    if (trust) {
+                        console.log(chalk.gray(`  Setup commands will run without confirmation prompts.`));
+                    }
+                } else if (key === 'subfolder') {
+                    const subfolder = getWorktreeSubfolder();
+                    console.log(chalk.blue(`Subfolder mode is currently: ${chalk.bold(subfolder ? 'enabled' : 'disabled')}`));
+                    if (subfolder) {
+                        console.log(chalk.gray(`  Worktrees will be created in: my-app-worktrees/feature`));
+                    } else {
+                        console.log(chalk.gray(`  Worktrees will be created as: my-app-feature (siblings)`));
+                    }
                 } else {
                     console.error(chalk.red(`Unknown configuration key to get: ${key}`));
-                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath`));
+                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath, trust, subfolder`));
                     process.exit(1);
                 }
                 break;
@@ -40,6 +54,22 @@ export async function configHandler(action: 'get' | 'set' | 'path' | 'clear', ke
                     setDefaultWorktreePath(value);
                     const resolvedPath = getDefaultWorktreePath();
                     console.log(chalk.green(`Default worktree path set to: ${chalk.bold(resolvedPath)}`));
+                } else if (key === 'trust' && value !== undefined) {
+                    const trustValue = value.toLowerCase() === 'true' || value === '1';
+                    setTrust(trustValue);
+                    console.log(chalk.green(`Trust mode ${trustValue ? 'enabled' : 'disabled'}.`));
+                    if (trustValue) {
+                        console.log(chalk.gray(`  Setup commands will now run without confirmation prompts.`));
+                    }
+                } else if (key === 'subfolder' && value !== undefined) {
+                    const subfolderValue = value.toLowerCase() === 'true' || value === '1';
+                    setWorktreeSubfolder(subfolderValue);
+                    console.log(chalk.green(`Subfolder mode ${subfolderValue ? 'enabled' : 'disabled'}.`));
+                    if (subfolderValue) {
+                        console.log(chalk.gray(`  Worktrees will now be created in: my-app-worktrees/feature`));
+                    } else {
+                        console.log(chalk.gray(`  Worktrees will now be created as: my-app-feature (siblings)`));
+                    }
                 } else if (key === 'editor') {
                     console.error(chalk.red(`You must provide an editor name.`));
                     process.exit(1);
@@ -49,9 +79,15 @@ export async function configHandler(action: 'get' | 'set' | 'path' | 'clear', ke
                 } else if (key === 'worktreepath') {
                     console.error(chalk.red(`You must provide a path.`));
                     process.exit(1);
+                } else if (key === 'trust') {
+                    console.error(chalk.red(`You must provide a value (true or false).`));
+                    process.exit(1);
+                } else if (key === 'subfolder') {
+                    console.error(chalk.red(`You must provide a value (true or false).`));
+                    process.exit(1);
                 } else {
                     console.error(chalk.red(`Unknown configuration key to set: ${key}`));
-                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath`));
+                    console.error(chalk.yellow(`Available keys: editor, provider, worktreepath, trust, subfolder`));
                     process.exit(1);
                 }
                 break;

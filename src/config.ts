@@ -14,6 +14,8 @@ interface ConfigSchema {
     defaultEditor: string;
     gitProvider: 'gh' | 'glab';
     defaultWorktreePath?: string;
+    trust?: boolean;
+    worktreeSubfolder?: boolean;
 }
 
 // Initialize conf with a schema and project name
@@ -31,6 +33,15 @@ const schema = {
     defaultWorktreePath: {
         type: 'string',
         // No default - falls back to sibling directory behavior when not set
+    },
+    trust: {
+        type: 'boolean',
+        default: false, // Default is to require confirmation for setup commands
+    },
+    worktreeSubfolder: {
+        type: 'boolean',
+        default: false, // Default is sibling directory behavior (my-app-feature)
+        // When true: my-app-worktrees/feature subfolder pattern
     },
 } as const;
 
@@ -94,4 +105,26 @@ export function setDefaultWorktreePath(worktreePath: string): void {
 // Function to clear the default worktree path
 export function clearDefaultWorktreePath(): void {
     config.delete('defaultWorktreePath');
+}
+
+// Function to get the trust setting (bypass setup command confirmation)
+export function getTrust(): boolean {
+    return config.get('trust') ?? false;
+}
+
+// Function to set the trust setting
+export function setTrust(trust: boolean): void {
+    config.set('trust', trust);
+}
+
+// Function to get the worktree subfolder setting
+// When true: creates worktrees in my-app-worktrees/feature pattern
+// When false: creates worktrees as my-app-feature siblings
+export function getWorktreeSubfolder(): boolean {
+    return config.get('worktreeSubfolder') ?? false;
+}
+
+// Function to set the worktree subfolder setting
+export function setWorktreeSubfolder(subfolder: boolean): void {
+    config.set('worktreeSubfolder', subfolder);
 } 
