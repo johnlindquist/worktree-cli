@@ -8,7 +8,7 @@ import {
     isMainRepoBare,
     getWorktrees,
     stashChanges,
-    popStash,
+    applyAndDropStash,
 } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
@@ -18,7 +18,7 @@ export async function extractWorktreeHandler(
     branchName?: string,
     options: { path?: string; install?: string; editor?: string } = {}
 ) {
-    let stashed = false;
+    let stashHash: string | null = null;
 
     try {
         // 1. Validate we're in a git repo
@@ -42,8 +42,8 @@ export async function extractWorktreeHandler(
                     process.exit(0);
                 } else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-extract: Before extracting worktree`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-extract: Before extracting worktree`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
                     }
                 } else {
@@ -178,9 +178,9 @@ export async function extractWorktreeHandler(
         process.exit(1);
     } finally {
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

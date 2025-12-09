@@ -9,7 +9,7 @@ import {
     detectGitProvider,
     getWorktrees,
     stashChanges,
-    popStash,
+    applyAndDropStash,
 } from "../utils/git.js";
 import { resolveWorktreePath } from "../utils/paths.js";
 import { runSetupScripts } from "../utils/setup.js";
@@ -91,7 +91,7 @@ export async function prWorktreeHandler(
     prNumber?: string,
     options: { path?: string; install?: string; editor?: string; setup?: boolean } = {}
 ) {
-    let stashed = false;
+    let stashHash: string | null = null;
 
     try {
         // 1. Validate we're in a git repo
@@ -135,8 +135,8 @@ export async function prWorktreeHandler(
                     process.exit(0);
                 } else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-pr: Before creating worktree for ${requestType} #${prNumber}`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-pr: Before creating worktree for ${requestType} #${prNumber}`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
                     }
                 } else {
@@ -261,9 +261,9 @@ export async function prWorktreeHandler(
         process.exit(1);
     } finally {
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

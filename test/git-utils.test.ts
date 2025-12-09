@@ -251,7 +251,7 @@ describe('stashChanges and popStash', () => {
     });
 
     it('should stash and pop changes', async () => {
-        const { stashChanges, popStash, isWorktreeClean } = await import('../src/utils/git.js');
+        const { stashChanges, applyAndDropStash, isWorktreeClean } = await import('../src/utils/git.js');
 
         // Make changes
         await writeFile(join(ctx.repoDir, 'stash-test.txt'), 'stash content');
@@ -262,16 +262,17 @@ describe('stashChanges and popStash', () => {
         expect(isClean).toBe(false);
 
         // Stash
-        const stashed = await stashChanges(ctx.repoDir, 'test stash');
-        expect(stashed).toBe(true);
+        const stashHash = await stashChanges(ctx.repoDir, 'test stash');
+        expect(stashHash).not.toBeNull();
+        expect(typeof stashHash).toBe('string');
 
         // Verify clean after stash
         isClean = await isWorktreeClean(ctx.repoDir);
         expect(isClean).toBe(true);
 
-        // Pop
-        const popped = await popStash(ctx.repoDir);
-        expect(popped).toBe(true);
+        // Apply the stash by hash
+        const applied = await applyAndDropStash(stashHash!, ctx.repoDir);
+        expect(applied).toBe(true);
 
         // Verify dirty again
         isClean = await isWorktreeClean(ctx.repoDir);
@@ -282,7 +283,7 @@ describe('stashChanges and popStash', () => {
         await rm(join(ctx.repoDir, 'stash-test.txt')).catch(() => {});
     });
 
-    it('should return false when nothing to stash', async () => {
+    it('should return null when nothing to stash', async () => {
         const { stashChanges, isWorktreeClean } = await import('../src/utils/git.js');
 
         // Ensure clean state first
@@ -292,7 +293,7 @@ describe('stashChanges and popStash', () => {
         const isClean = await isWorktreeClean(ctx.repoDir);
         expect(isClean).toBe(true);
 
-        const stashed = await stashChanges(ctx.repoDir);
-        expect(stashed).toBe(false);
+        const stashHash = await stashChanges(ctx.repoDir);
+        expect(stashHash).toBeNull();
     });
 });
