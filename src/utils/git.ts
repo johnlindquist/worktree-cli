@@ -421,29 +421,75 @@ export async function getRepoName(cwd: string = "."): Promise<string> {
 }
 
 /**
- * Stash changes in the current worktree
+ * Stash changes in the current worktree using git stash create
+ * This creates a unique, identifiable stash commit and returns its hash
+ * to prevent race conditions with concurrent operations.
  *
  * @param cwd - Working directory
  * @param message - Optional stash message
- * @returns true if stash was created, false if working tree was clean
+ * @returns Stash hash if changes were stashed, null if working tree was clean
  */
-export async function stashChanges(cwd: string = ".", message?: string): Promise<boolean> {
+export async function stashChanges(cwd: string = ".", message?: string): Promise<string | null> {
     try {
-        const args = ["stash", "push", "--include-untracked"];
+        // First check if there are any changes to stash
+        const { stdout: statusOutput } = await execa("git", ["-C", cwd, "status", "--porcelain"]);
+        if (!statusOutput.trim()) {
+            // No changes to stash
+            return null;
+        }
+
+        // Add untracked files to the index temporarily so they're included in the stash
+        await execa("git", ["-C", cwd, "add", "-A"]);
+
+        // Create a stash commit and get its hash
+        const args = ["stash", "create"];
         if (message) {
-            args.push("-m", message);
+            args.push(message);
         }
         const { stdout } = await execa("git", ["-C", cwd, ...args]);
-        // If stdout contains "No local changes to save", nothing was stashed
-        return !stdout.includes("No local changes to save");
+        const stashHash = stdout.trim();
+
+        if (!stashHash) {
+            // No changes were stashed (shouldn't happen since we checked above)
+            return null;
+        }
+
+        // Reset the working directory to HEAD to complete the stash effect
+        await execa("git", ["-C", cwd, "reset", "--hard", "HEAD"]);
+
+        // Clean untracked files
+        await execa("git", ["-C", cwd, "clean", "-fd"]);
+
+        return stashHash;
     } catch (error: any) {
         console.error(chalk.red("Failed to stash changes:"), error.stderr || error.message);
+        return null;
+    }
+}
+
+/**
+ * Apply and drop a specific stash by hash
+ * This ensures we restore the exact changes that were stashed, avoiding conflicts
+ * with the shared stash stack.
+ *
+ * @param stashHash - The unique hash of the stash to apply
+ * @param cwd - Working directory
+ * @returns true if stash was applied successfully
+ */
+export async function applyAndDropStash(stashHash: string, cwd: string = "."): Promise<boolean> {
+    try {
+        // Apply the specific stash by hash
+        await execa("git", ["-C", cwd, "stash", "apply", stashHash]);
+        return true;
+    } catch (error: any) {
+        console.error(chalk.red("Failed to apply stash:"), error.stderr || error.message);
         return false;
     }
 }
 
 /**
  * Pop the most recent stash
+ * @deprecated Use applyAndDropStash with a specific hash instead to prevent race conditions
  *
  * @param cwd - Working directory
  * @returns true if stash was popped successfully
