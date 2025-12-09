@@ -2,12 +2,14 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { getDefaultEditor, shouldSkipEditor } from "../config.js";
-import { isWorktreeClean, isMainRepoBare, getWorktrees, stashChanges, popStash, } from "../utils/git.js";
+import { isWorktreeClean, isMainRepoBare, getWorktrees, stashChanges, applyAndDropStash, getUpstreamRemote, } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState } from "../utils/tui.js";
+import { onShutdown } from "../utils/shutdown.js";
 export async function extractWorktreeHandler(branchName, options = {}) {
-    let stashed = false;
+    let stashHash = null;
+    let unregisterShutdown = null;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
@@ -25,9 +27,16 @@ export async function extractWorktreeHandler(branchName, options = {}) {
                 }
                 else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-extract: Before extracting worktree`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-extract: Before extracting worktree`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 }
                 else {
@@ -65,13 +74,14 @@ export async function extractWorktreeHandler(branchName, options = {}) {
             process.exit(1);
         }
         // 6. Verify the branch exists (either locally or remotely)
+        const remote = await getUpstreamRemote();
         const { stdout: localBranches } = await execa("git", ["branch", "--format=%(refname:short)"]);
         const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--format=%(refname:short)"]);
         const localBranchList = localBranches.split('\n').filter(b => b.trim() !== '');
         const remoteBranchList = remoteBranches
             .split('\n')
-            .filter(b => b.trim() !== '' && b.startsWith('origin/'))
-            .map(b => b.replace('origin/', ''));
+            .filter(b => b.trim() !== '' && b.startsWith(`${remote}/`))
+            .map(b => b.replace(`${remote}/`, ''));
         const branchExistsLocally = localBranchList.includes(selectedBranch);
         const branchExistsRemotely = remoteBranchList.includes(selectedBranch);
         if (!branchExistsLocally && !branchExistsRemotely) {
@@ -99,7 +109,7 @@ export async function extractWorktreeHandler(branchName, options = {}) {
         try {
             if (!branchExistsLocally && branchExistsRemotely) {
                 console.log(chalk.yellow(`Branch "${selectedBranch}" is remote-only. Creating local tracking branch...`));
-                await atomic.createWorktreeFromRemote(resolvedPath, selectedBranch, `origin/${selectedBranch}`);
+                await atomic.createWorktreeFromRemote(resolvedPath, selectedBranch, `${remote}/${selectedBranch}`);
             }
             else {
                 await atomic.createWorktree(resolvedPath, selectedBranch, false);
@@ -147,10 +157,14 @@ export async function extractWorktreeHandler(branchName, options = {}) {
         process.exit(1);
     }
     finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

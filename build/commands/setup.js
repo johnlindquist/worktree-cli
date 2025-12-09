@@ -1,61 +1,17 @@
 import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getDefaultEditor, shouldSkipEditor } from "../config.js";
-import { isWorktreeClean, isMainRepoBare, getRepoRoot, stashChanges, popStash, } from "../utils/git.js";
+import { isWorktreeClean, isMainRepoBare, stashChanges, applyAndDropStash, getUpstreamRemote, } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
-import { handleDirtyState, confirmCommands } from "../utils/tui.js";
-/**
- * Load and parse setup commands from worktrees.json
- */
-async function loadSetupCommands(repoRoot) {
-    // Check for .cursor/worktrees.json first
-    const cursorSetupPath = join(repoRoot, ".cursor", "worktrees.json");
-    try {
-        await stat(cursorSetupPath);
-        const content = await readFile(cursorSetupPath, "utf-8");
-        const data = JSON.parse(content);
-        let commands = [];
-        if (Array.isArray(data)) {
-            commands = data;
-        }
-        else if (data && typeof data === 'object' && Array.isArray(data["setup-worktree"])) {
-            commands = data["setup-worktree"];
-        }
-        if (commands.length > 0) {
-            return { commands, filePath: cursorSetupPath };
-        }
-    }
-    catch {
-        // Not found, try fallback
-    }
-    // Check for worktrees.json
-    const fallbackSetupPath = join(repoRoot, "worktrees.json");
-    try {
-        await stat(fallbackSetupPath);
-        const content = await readFile(fallbackSetupPath, "utf-8");
-        const data = JSON.parse(content);
-        let commands = [];
-        if (Array.isArray(data)) {
-            commands = data;
-        }
-        else if (data && typeof data === 'object' && Array.isArray(data["setup-worktree"])) {
-            commands = data["setup-worktree"];
-        }
-        if (commands.length > 0) {
-            return { commands, filePath: fallbackSetupPath };
-        }
-    }
-    catch {
-        // Not found
-    }
-    return null;
-}
+import { handleDirtyState } from "../utils/tui.js";
+import { runSetupScriptsSecure } from "../utils/setup.js";
+import { onShutdown } from "../utils/shutdown.js";
 export async function setupWorktreeHandler(branchName = "main", options = {}) {
-    let stashed = false;
+    let stashHash = null;
+    let unregisterShutdown = null;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
@@ -79,9 +35,16 @@ export async function setupWorktreeHandler(branchName = "main", options = {}) {
                 }
                 else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-setup: Before creating worktree for ${branchName}`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-setup: Before creating worktree for ${branchName}`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 }
                 else {
@@ -107,8 +70,9 @@ export async function setupWorktreeHandler(branchName = "main", options = {}) {
             // Directory doesn't exist, continue with creation
         }
         // 5. Check if branch exists
+        const remote = await getUpstreamRemote();
         const { stdout: localBranches } = await execa("git", ["branch", "--list", branchName]);
-        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `origin/${branchName}`]);
+        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `${remote}/${branchName}`]);
         const branchExists = !!localBranches || !!remoteBranches;
         // 6. Create the new worktree or open the editor if it already exists
         if (directoryExists) {
@@ -142,29 +106,12 @@ export async function setupWorktreeHandler(branchName = "main", options = {}) {
                 }
                 // 7. Execute setup-worktree commands if setup file exists
                 // Improvement #6: Replace regex security with trust model
-                const repoRoot = await getRepoRoot();
-                if (repoRoot) {
-                    const setupResult = await loadSetupCommands(repoRoot);
-                    if (setupResult) {
-                        console.log(chalk.blue(`Found setup file: ${setupResult.filePath}`));
-                        // Show commands and ask for confirmation (unless --trust flag is set)
-                        const shouldRun = await confirmCommands(setupResult.commands, {
-                            title: "The following setup commands will be executed:",
-                            trust: options.trust,
-                        });
-                        if (shouldRun) {
-                            const env = { ...process.env, ROOT_WORKTREE_PATH: repoRoot };
-                            await atomic.runSetupCommands(setupResult.commands, resolvedPath, env);
-                            console.log(chalk.green("Setup commands completed."));
-                        }
-                        else {
-                            console.log(chalk.yellow("Setup commands skipped."));
-                        }
-                    }
-                    else {
-                        console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
-                        console.log(chalk.yellow("Tip: Create a worktrees.json file to automate setup commands."));
-                    }
+                const setupRan = await runSetupScriptsSecure(resolvedPath, {
+                    trust: options.trust,
+                });
+                if (!setupRan) {
+                    console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
+                    console.log(chalk.yellow("Tip: Create a worktrees.json file to automate setup commands."));
                 }
                 // 8. Install dependencies if specified
                 if (options.install) {
@@ -209,10 +156,14 @@ export async function setupWorktreeHandler(branchName = "main", options = {}) {
         process.exit(1);
     }
     finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

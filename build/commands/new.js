@@ -3,12 +3,14 @@ import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getDefaultEditor, shouldSkipEditor } from "../config.js";
-import { isWorktreeClean, isMainRepoBare, stashChanges, popStash, } from "../utils/git.js";
+import { isWorktreeClean, isMainRepoBare, stashChanges, applyAndDropStash, getUpstreamRemote, } from "../utils/git.js";
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState } from "../utils/tui.js";
+import { onShutdown } from "../utils/shutdown.js";
 export async function newWorktreeHandler(branchName, options = {}) {
-    let stashed = false;
+    let stashHash = null;
+    let unregisterShutdown = null;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
@@ -40,9 +42,16 @@ export async function newWorktreeHandler(branchName, options = {}) {
                 }
                 else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-new: Before creating worktree for ${branchName}`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-new: Before creating worktree for ${branchName}`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 }
                 else {
@@ -69,8 +78,9 @@ export async function newWorktreeHandler(branchName, options = {}) {
             // Directory doesn't exist, continue with creation
         }
         // 5. Check if branch exists
+        const remote = await getUpstreamRemote();
         const { stdout: localBranches } = await execa("git", ["branch", "--list", branchName]);
-        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `origin/${branchName}`]);
+        const { stdout: remoteBranches } = await execa("git", ["branch", "-r", "--list", `${remote}/${branchName}`]);
         const branchExists = !!localBranches || !!remoteBranches;
         // 6. Create the new worktree or open the editor if it already exists
         if (directoryExists) {
@@ -150,10 +160,14 @@ export async function newWorktreeHandler(branchName, options = {}) {
         process.exit(1);
     }
     finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

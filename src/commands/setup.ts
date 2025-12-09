@@ -14,12 +14,14 @@ import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState } from "../utils/tui.js";
 import { runSetupScriptsSecure } from "../utils/setup.js";
+import { onShutdown } from "../utils/shutdown.js";
 
 export async function setupWorktreeHandler(
     branchName: string = "main",
     options: { path?: string; checkout?: boolean; install?: string; editor?: string; trust?: boolean } = {}
 ) {
     let stashHash: string | null = null;
+    let unregisterShutdown: (() => void) | null = null;
 
     try {
         // 1. Validate we're in a git repo
@@ -53,6 +55,13 @@ export async function setupWorktreeHandler(
                     stashHash = await stashChanges(".", `wt-setup: Before creating worktree for ${branchName}`);
                     if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 } else {
                     console.log(chalk.yellow("Proceeding with uncommitted changes..."));
@@ -167,6 +176,11 @@ export async function setupWorktreeHandler(
         }
         process.exit(1);
     } finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
+
         // Restore stashed changes if we stashed them
         if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));

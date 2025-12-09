@@ -73,6 +73,72 @@ export async function isMainRepoBare(cwd = '.') {
     }
 }
 /**
+ * Determine the upstream remote name for the repository.
+ *
+ * Intelligently determines the correct remote to use by:
+ * 1. Checking the tracking information for the main branch
+ * 2. Falling back to common remote names ('origin', 'upstream')
+ * 3. Using the first available remote if no common names are found
+ *
+ * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
+ * @returns The remote name (e.g., 'origin', 'upstream'), or 'origin' as a fallback
+ */
+export async function getUpstreamRemote(cwd = ".") {
+    try {
+        // Strategy 1: Try to get the remote from the main branch's tracking information
+        // This handles cases where main is tracking upstream/main instead of origin/main
+        try {
+            const { stdout: mainBranch } = await execa("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "main@{upstream}"], {
+                reject: false,
+            });
+            if (mainBranch && mainBranch.trim()) {
+                // Extract remote name from refs/remotes/upstream/main -> upstream
+                const match = mainBranch.trim().match(/^([^\/]+)\//);
+                if (match && match[1]) {
+                    return match[1];
+                }
+            }
+        }
+        catch {
+            // main branch doesn't have upstream tracking, try master
+            try {
+                const { stdout: masterBranch } = await execa("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "master@{upstream}"], {
+                    reject: false,
+                });
+                if (masterBranch && masterBranch.trim()) {
+                    const match = masterBranch.trim().match(/^([^\/]+)\//);
+                    if (match && match[1]) {
+                        return match[1];
+                    }
+                }
+            }
+            catch {
+                // Neither main nor master have upstream tracking
+            }
+        }
+        // Strategy 2: Get all remotes and check for common names
+        const { stdout: remotesOutput } = await execa("git", ["-C", cwd, "remote"]);
+        const remotes = remotesOutput.split('\n').map(r => r.trim()).filter(r => r);
+        if (remotes.length === 0) {
+            // No remotes configured, return 'origin' as fallback
+            return 'origin';
+        }
+        // Check for common remote names in order of preference
+        const commonRemotes = ['origin', 'upstream'];
+        for (const commonRemote of commonRemotes) {
+            if (remotes.includes(commonRemote)) {
+                return commonRemote;
+            }
+        }
+        // Strategy 3: Use the first available remote
+        return remotes[0];
+    }
+    catch (error) {
+        // If all else fails, return 'origin' as a reasonable default
+        return 'origin';
+    }
+}
+/**
  * Determine the top-level directory of the Git repository containing the given working directory.
  *
  * @param cwd - Path of the working directory to query (defaults to the current directory)
@@ -127,7 +193,7 @@ function getRemoteHostname(remoteUrl) {
 /**
  * Detect the Git hosting provider (GitHub or GitLab) for the repository.
  *
- * Examines the remote URL for the 'origin' remote and determines whether
+ * Examines the remote URL for the upstream remote and determines whether
  * it points to GitHub or GitLab by parsing the hostname.
  *
  * @param cwd - Working directory used to locate the Git repository (defaults to current directory)
@@ -135,7 +201,8 @@ function getRemoteHostname(remoteUrl) {
  */
 export async function detectGitProvider(cwd = ".") {
     try {
-        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remote = await getUpstreamRemote(cwd);
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", remote]);
         const remoteUrl = stdout.trim();
         const hostname = getRemoteHostname(remoteUrl);
         if (!hostname) {
@@ -290,7 +357,8 @@ export async function findWorktreeByPath(targetPath, cwd = ".") {
 export async function getRepoName(cwd = ".") {
     try {
         // Try to get from remote URL first
-        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", "origin"]);
+        const remote = await getUpstreamRemote(cwd);
+        const { stdout } = await execa("git", ["-C", cwd, "remote", "get-url", remote]);
         const remoteUrl = stdout.trim();
         // Extract repo name from URL
         // Handles: git@github.com:user/repo.git, https://github.com/user/repo.git, etc.
@@ -311,29 +379,69 @@ export async function getRepoName(cwd = ".") {
     return 'repo';
 }
 /**
- * Stash changes in the current worktree
+ * Stash changes in the current worktree using git stash create
+ * This creates a unique, identifiable stash commit and returns its hash
+ * to prevent race conditions with concurrent operations.
  *
  * @param cwd - Working directory
  * @param message - Optional stash message
- * @returns true if stash was created, false if working tree was clean
+ * @returns Stash hash if changes were stashed, null if working tree was clean
  */
 export async function stashChanges(cwd = ".", message) {
     try {
-        const args = ["stash", "push", "--include-untracked"];
+        // First check if there are any changes to stash
+        const { stdout: statusOutput } = await execa("git", ["-C", cwd, "status", "--porcelain"]);
+        if (!statusOutput.trim()) {
+            // No changes to stash
+            return null;
+        }
+        // Add untracked files to the index temporarily so they're included in the stash
+        await execa("git", ["-C", cwd, "add", "-A"]);
+        // Create a stash commit and get its hash
+        const args = ["stash", "create"];
         if (message) {
-            args.push("-m", message);
+            args.push(message);
         }
         const { stdout } = await execa("git", ["-C", cwd, ...args]);
-        // If stdout contains "No local changes to save", nothing was stashed
-        return !stdout.includes("No local changes to save");
+        const stashHash = stdout.trim();
+        if (!stashHash) {
+            // No changes were stashed (shouldn't happen since we checked above)
+            return null;
+        }
+        // Reset the working directory to HEAD to complete the stash effect
+        await execa("git", ["-C", cwd, "reset", "--hard", "HEAD"]);
+        // Clean untracked files
+        await execa("git", ["-C", cwd, "clean", "-fd"]);
+        return stashHash;
     }
     catch (error) {
         console.error(chalk.red("Failed to stash changes:"), error.stderr || error.message);
+        return null;
+    }
+}
+/**
+ * Apply and drop a specific stash by hash
+ * This ensures we restore the exact changes that were stashed, avoiding conflicts
+ * with the shared stash stack.
+ *
+ * @param stashHash - The unique hash of the stash to apply
+ * @param cwd - Working directory
+ * @returns true if stash was applied successfully
+ */
+export async function applyAndDropStash(stashHash, cwd = ".") {
+    try {
+        // Apply the specific stash by hash
+        await execa("git", ["-C", cwd, "stash", "apply", stashHash]);
+        return true;
+    }
+    catch (error) {
+        console.error(chalk.red("Failed to apply stash:"), error.stderr || error.message);
         return false;
     }
 }
 /**
  * Pop the most recent stash
+ * @deprecated Use applyAndDropStash with a specific hash instead to prevent race conditions
  *
  * @param cwd - Working directory
  * @returns true if stash was popped successfully

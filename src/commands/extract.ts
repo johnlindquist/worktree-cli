@@ -14,12 +14,14 @@ import {
 import { resolveWorktreePath, validateBranchName } from "../utils/paths.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState } from "../utils/tui.js";
+import { onShutdown } from "../utils/shutdown.js";
 
 export async function extractWorktreeHandler(
     branchName?: string,
     options: { path?: string; install?: string; editor?: string } = {}
 ) {
     let stashHash: string | null = null;
+    let unregisterShutdown: (() => void) | null = null;
 
     try {
         // 1. Validate we're in a git repo
@@ -46,6 +48,13 @@ export async function extractWorktreeHandler(
                     stashHash = await stashChanges(".", `wt-extract: Before extracting worktree`);
                     if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 } else {
                     console.log(chalk.yellow("Proceeding with uncommitted changes..."));
@@ -179,6 +188,11 @@ export async function extractWorktreeHandler(
         }
         process.exit(1);
     } finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
+
         // Restore stashed changes if we stashed them
         if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));

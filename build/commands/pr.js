@@ -2,12 +2,13 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { stat } from "node:fs/promises";
 import { getDefaultEditor, shouldSkipEditor, getGitProvider } from "../config.js";
-import { isWorktreeClean, isMainRepoBare, detectGitProvider, getWorktrees, stashChanges, popStash, } from "../utils/git.js";
+import { isWorktreeClean, isMainRepoBare, detectGitProvider, getWorktrees, stashChanges, applyAndDropStash, getUpstreamRemote, } from "../utils/git.js";
 import { resolveWorktreePath } from "../utils/paths.js";
-import { runSetupScripts } from "../utils/setup.js";
+import { runSetupScriptsSecure } from "../utils/setup.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState, selectPullRequest } from "../utils/tui.js";
 import { withSpinner } from "../utils/spinner.js";
+import { onShutdown } from "../utils/shutdown.js";
 /**
  * Extract repository owner and name from git remote URL
  */
@@ -171,12 +172,13 @@ async function getBranchNameFromPR(prNumber, provider) {
 async function fetchPRBranch(prNumber, localBranchName, provider) {
     const isPR = provider === 'gh';
     const requestType = isPR ? "PR" : "MR";
+    const remote = await getUpstreamRemote();
     if (provider === 'gh') {
         // Fetch the PR head ref directly into a local branch
         // This doesn't require checking out or changing the current branch
         await withSpinner(`Fetching ${requestType} #${prNumber} from remote...`, async () => {
             await execa("git", [
-                "fetch", "origin",
+                "fetch", remote,
                 `refs/pull/${prNumber}/head:${localBranchName}`,
             ]);
         }, `Successfully fetched ${requestType} #${prNumber} branch "${localBranchName}".`);
@@ -187,14 +189,15 @@ async function fetchPRBranch(prNumber, localBranchName, provider) {
         const branchName = await getBranchNameFromPR(prNumber, provider);
         await withSpinner(`Fetching ${requestType} #${prNumber} from remote...`, async () => {
             await execa("git", [
-                "fetch", "origin",
+                "fetch", remote,
                 `${branchName}:${localBranchName}`,
             ]);
         }, `Successfully fetched ${requestType} #${prNumber} branch "${localBranchName}".`);
     }
 }
 export async function prWorktreeHandler(prNumber, options = {}) {
-    let stashed = false;
+    let stashHash = null;
+    let unregisterShutdown = null;
     try {
         // 1. Validate we're in a git repo
         await execa("git", ["rev-parse", "--is-inside-work-tree"]);
@@ -230,9 +233,16 @@ export async function prWorktreeHandler(prNumber, options = {}) {
                 }
                 else if (action === 'stash') {
                     console.log(chalk.blue("Stashing your changes..."));
-                    stashed = await stashChanges(".", `wt-pr: Before creating worktree for ${requestType} #${prNumber}`);
-                    if (stashed) {
+                    stashHash = await stashChanges(".", `wt-pr: Before creating worktree for ${requestType} #${prNumber}`);
+                    if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 }
                 else {
@@ -302,10 +312,12 @@ export async function prWorktreeHandler(prNumber, options = {}) {
             try {
                 await atomic.createWorktree(resolvedPath, prBranchName, false);
                 worktreeCreated = true;
-                // 10. Run setup scripts if requested
+                // 10. Run setup scripts if requested (with secure confirmation)
                 if (options.setup) {
                     console.log(chalk.blue("Running setup scripts..."));
-                    const setupRan = await runSetupScripts(resolvedPath);
+                    const setupRan = await runSetupScriptsSecure(resolvedPath, {
+                        trust: options.trust,
+                    });
                     if (!setupRan) {
                         console.log(chalk.yellow("No setup file found (.cursor/worktrees.json or worktrees.json)."));
                     }
@@ -349,10 +361,14 @@ export async function prWorktreeHandler(prNumber, options = {}) {
         process.exit(1);
     }
     finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
         // Restore stashed changes if we stashed them
-        if (stashed) {
+        if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));
-            const restored = await popStash(".");
+            const restored = await applyAndDropStash(stashHash, ".");
             if (restored) {
                 console.log(chalk.green("Changes restored successfully."));
             }

@@ -17,6 +17,7 @@ import { runSetupScriptsSecure } from "../utils/setup.js";
 import { AtomicWorktreeOperation } from "../utils/atomic.js";
 import { handleDirtyState, selectPullRequest } from "../utils/tui.js";
 import { withSpinner } from "../utils/spinner.js";
+import { onShutdown } from "../utils/shutdown.js";
 
 type GitProvider = 'gh' | 'glab';
 
@@ -242,6 +243,7 @@ export async function prWorktreeHandler(
     options: { path?: string; install?: string; editor?: string; setup?: boolean; trust?: boolean } = {}
 ) {
     let stashHash: string | null = null;
+    let unregisterShutdown: (() => void) | null = null;
 
     try {
         // 1. Validate we're in a git repo
@@ -288,6 +290,13 @@ export async function prWorktreeHandler(
                     stashHash = await stashChanges(".", `wt-pr: Before creating worktree for ${requestType} #${prNumber}`);
                     if (stashHash) {
                         console.log(chalk.green("Changes stashed successfully."));
+                        // Register SIGINT handler to restore stash if interrupted
+                        unregisterShutdown = onShutdown(async () => {
+                            if (stashHash) {
+                                console.log(chalk.blue("Restoring stashed changes due to interruption..."));
+                                await applyAndDropStash(stashHash, ".");
+                            }
+                        });
                     }
                 } else {
                     console.log(chalk.yellow("Proceeding with uncommitted changes..."));
@@ -410,6 +419,11 @@ export async function prWorktreeHandler(
         console.error(chalk.red(`Failed to set up worktree from ${prNumber ? `PR/MR #${prNumber}` : 'PR/MR'}:`), error.message || error);
         process.exit(1);
     } finally {
+        // Unregister shutdown handler
+        if (unregisterShutdown) {
+            unregisterShutdown();
+        }
+
         // Restore stashed changes if we stashed them
         if (stashHash) {
             console.log(chalk.blue("Restoring your stashed changes..."));

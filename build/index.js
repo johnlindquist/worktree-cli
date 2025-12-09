@@ -66,6 +66,7 @@ program
     .option("-i, --install <packageManager>", "Package manager to use for installing dependencies (npm, pnpm, bun, etc.)")
     .option("-e, --editor <editor>", "Editor to use for opening the worktree (overrides default editor)")
     .option("-s, --setup", "Run setup scripts from worktrees.json or .cursor/worktrees.json")
+    .option("-t, --trust", "Trust and execute setup scripts without confirmation (use with caution)")
     .description("Fetch the branch for a given GitHub PR or GitLab MR number and create a worktree.")
     .action(prWorktreeHandler);
 program
